@@ -201,6 +201,7 @@ legend_html = """
     bottom: 80px; left: 30px; 
     width: 210px; height: 170px; 
     background-color: white; 
+    color: black;
     z-index:9999; font-size:14px;
     border:2px solid grey; 
     border-radius:8px; 
@@ -210,26 +211,10 @@ legend_html = """
 <span style="background:#ADD8E6; border:1px solid #000; padding:2px 12px;"></span> 1 property<br>
 <span style="background:#F4A6A6; border:1px solid #000; padding:2px 12px;"></span> 2–5 properties<br>
 <span style="background:#FFFACD; border:1px solid #000; padding:2px 12px;"></span> 6–10 properties<br>
-<span style="background:#90EE90; border:1px solid #000; padding:2px 12px;"></span> &gt;10 properties
+<span style="background:#90EE90; border:1px solid #000; padding:2px 12px;"></span> >10 properties
 </div>
 """
 m.get_root().html.add_child(folium.Element(legend_html))
-
-watermark_html = """
-<div style="
-    position: fixed;
-    bottom: 35px; left: 30px;
-    background-color: rgba(255,255,255,0.75);
-    padding: 6px 12px;
-    font-size: 14px;
-    border-radius: 5px;
-    z-index: 9999;
-    border: 1px solid #888;
-    font-weight: bold;">
-Created by Keith Frislid
-</div>
-"""
-m.get_root().html.add_child(folium.Element(watermark_html))
 
 # -----------------------------
 # 8. DISPLAY IN STREAMLIT
