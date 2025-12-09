@@ -187,7 +187,7 @@ folium.GeoJson(
         labels=False,
         localize=True,
         parse_html=True,
-        max_width=700,
+        max_width=500,
     ),
 ).add_to(m)
 
@@ -223,5 +223,5 @@ m.get_root().html.add_child(folium.Element(legend_html))
 st.title("Closed Won RHD Map")
 st.write("This map pulls live data from your Google Sheet.")
 
-st_folium(m, width=1400, height=650)
+st_folium(m, width=1600, height=650)
 
