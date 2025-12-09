@@ -77,7 +77,8 @@ def load_geojson():
     data = resp.json()
 
     tn_features = [
-        f for f in data["features"]
+        f
+        for f in data["features"]
         if f.get("properties", {}).get("STATE") == "47"
     ]
 
@@ -107,7 +108,27 @@ for _, row in df_use.iterrows():
     )
 
 # -----------------------------
-# 5. ENRICH GEOJSON WITH PROP_COUNT + POPUP_HTML
+# 5. COMPUTE CONVERSION RATES PER COUNTY (FROM FULL DATA)
+# -----------------------------
+
+df_conv = df.copy()
+df_conv["Status_norm"] = df_conv["Status"].str.lower().str.strip()
+mask = df_conv["Status_norm"].isin(["sold", "cut loose"])
+df_conv = df_conv[mask].copy()
+
+grp = df_conv.groupby("County_clean_up")
+
+sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum())
+cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
+total_counts = sold_counts + cut_counts
+
+conv_rate = sold_counts / total_counts.replace(0, pd.NA)  # fraction 0–1
+
+# Dict: COUNTY -> conversion fraction (e.g., 0.73)
+conversion_dict = conv_rate.to_dict()
+
+# -----------------------------
+# 6. ENRICH GEOJSON WITH PROP_COUNT + POPUP_HTML + CONVERSION
 # -----------------------------
 
 for feature in tn_geo["features"]:
@@ -120,12 +141,24 @@ for feature in tn_geo["features"]:
     count = county_counts.get(name_up, 0)
     props_list = county_properties.get(name_up, [])
 
-    props["PROP_COUNT"] = int(count)
+    # Conversion
+    conv_val = conversion_dict.get(name_up)
+    if pd.notna(conv_val):
+        conv_pct = float(conv_val * 100.0)
+        conv_str = f"{conv_pct:.1f}%"
+    else:
+        conv_pct = None
+        conv_str = "N/A"
 
-    # Build popup HTML: county, count, scrollable list of properties
+    props["PROP_COUNT"] = int(count)
+    props["CONVERSION"] = conv_pct
+    props["CONVERSION_STR"] = conv_str
+
+    # Build popup HTML: county, count, conversion, scrollable list of properties
     lines = [
         f"<h4>{county_name} County</h4>",
         f"<b>Properties {mode.lower()}:</b> {count}<br>",
+        f"<b>Conversion:</b> {conv_str}<br>",
     ]
 
     if props_list:
@@ -155,7 +188,7 @@ for feature in tn_geo["features"]:
     props["NAME"] = county_name
 
 # -----------------------------
-# 6. COLOR SCALES (DIFFERENT BY MODE)
+# 7. COLOR SCALES (DIFFERENT BY MODE)
 # -----------------------------
 
 
@@ -204,7 +237,7 @@ def category_color(v: int, mode: str) -> str:
 
 
 # -----------------------------
-# 7. BUILD THE FOLIUM MAP
+# 8. BUILD THE FOLIUM MAP
 # -----------------------------
 
 center_lat, center_lon = 35.8, -86.4
@@ -227,8 +260,8 @@ folium.GeoJson(
     name="TN Counties",
     style_function=style_function,
     tooltip=folium.GeoJsonTooltip(
-        fields=["NAME", "PROP_COUNT"],
-        aliases=["County:", "Properties:"],
+        fields=["NAME", "PROP_COUNT", "CONVERSION_STR"],
+        aliases=["County:", "Properties:", "Conversion:"],
         localize=True,
         sticky=False,
     ),
@@ -242,7 +275,7 @@ folium.GeoJson(
 ).add_to(m)
 
 # -----------------------------
-# 8. ADD LEGEND (MODE-AWARE, NO WATERMARK)
+# 9. ADD LEGEND (MODE-AWARE, NO WATERMARK)
 # -----------------------------
 
 if mode == "Sold":
@@ -274,55 +307,10 @@ legend_html = f"""
 m.get_root().html.add_child(folium.Element(legend_html))
 
 # -----------------------------
-# 9. DISPLAY MAP IN STREAMLIT
+# 10. DISPLAY MAP IN STREAMLIT
 # -----------------------------
 
 st.title("Tennessee Property Acquisition Map")
 st.write("This map pulls live data from your Google Sheet.")
 
 st_folium(m, width=900, height=650)
-
-# -----------------------------
-# 10. COUNTY-LEVEL CONVERSION SUMMARY
-# -----------------------------
-
-st.subheader("County Conversion Summary (Sold vs Cut Loose)")
-
-# Normalize statuses for summary
-df_conv = df.copy()
-df_conv["Status_norm"] = df_conv["Status"].str.lower().str.strip()
-mask = df_conv["Status_norm"].isin(["sold", "cut loose"])
-df_conv = df_conv[mask].copy()
-
-grp = df_conv.groupby("County_clean_up")
-
-sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum())
-cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
-total_counts = sold_counts + cut_counts
-
-conv_rate = sold_counts / total_counts.replace(0, pd.NA)
-
-summary = (
-    pd.DataFrame(
-        {
-            "County_clean_up": sold_counts.index,
-            "Sold": sold_counts.values,
-            "Cut_Loose": cut_counts.values,
-            "Total": total_counts.values,
-            "Conversion_Rate": conv_rate.values,
-        }
-    )
-    .sort_values("Conversion_Rate", ascending=False)
-)
-
-# Nice display names
-summary["County"] = summary["County_clean_up"].str.title()
-summary["Conversion_Rate"] = (summary["Conversion_Rate"] * 100).round(1)
-
-summary = summary[["County", "Sold", "Cut_Loose", "Total", "Conversion_Rate"]]
-
-st.dataframe(
-    summary,
-    use_container_width=True,
-    hide_index=True,
-)
