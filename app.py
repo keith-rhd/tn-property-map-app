@@ -45,10 +45,9 @@ df = load_data()
 
 @st.cache_data
 def load_geojson():
-    with open("tn_counties.geojson", "r") as f:
-        return json.load(f)
+    url = "https://eric.clst.org/assets/us/json/county/47.json"
+    return requests.get(url).json()
 
-tn_geo = load_geojson()
 
 # -----------------------------
 # 3. BUILD COUNTY PROPERTY COUNTS + LISTS
