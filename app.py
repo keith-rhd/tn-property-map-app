@@ -1,8 +1,10 @@
-import streamlit as st
-import pandas as pd
-import folium
-from streamlit_folium import st_folium
 import json
+
+import pandas as pd
+import requests
+import streamlit as st
+from streamlit_folium import st_folium
+import folium
 
 st.set_page_config(page_title="TN Property Map", layout="wide")
 
@@ -11,6 +13,7 @@ st.set_page_config(page_title="TN Property Map", layout="wide")
 # -----------------------------
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTw_-UeODGJQFKDMVXM59CG45SrbADPQpyWcALENIDqT8SUhHFm1URYNP3aB6vudjzpM1mBFRio3rWi/pub?output=csv"
+
 
 @st.cache_data(ttl=60)
 def load_data():
@@ -23,7 +26,7 @@ def load_data():
         st.error(f"Missing required columns in sheet: {missing}")
         st.stop()
 
-    # Clean county names
+    # Normalize county names
     df["County_clean"] = (
         df["County"]
         .astype(str)
@@ -32,22 +35,27 @@ def load_data():
     )
     df["County_clean_up"] = df["County_clean"].str.upper()
 
-    # Fix typo if it appears
+    # Fix any known typos
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
 
     return df
 
+
 df = load_data()
 
 # -----------------------------
-# 2. LOAD TN COUNTY GEOJSON (LIVE FROM WEB)
+# 2. LOAD TN COUNTY GEOJSON FROM WEB
 # -----------------------------
-import requests
+
 
 @st.cache_data
 def load_geojson():
-    TN_GEOJSON_URL = "https://eric.clst.org/assets/us/json/county/47.json"
-    return requests.get(TN_GEOJSON_URL).json()
+    # Tennessee counties only (FIPS 47)
+    url = "https://eric.clst.org/assets/us/json/county/47.json"
+    resp = requests.get(url)
+    resp.raise_for_status()
+    return resp.json()
+
 
 tn_geo = load_geojson()
 
@@ -60,34 +68,41 @@ county_counts = df.groupby("County_clean_up").size().to_dict()
 county_properties = {}
 for _, row in df.iterrows():
     c = row["County_clean_up"]
-    county_properties.setdefault(c, []).append({
-        "Address": row["Address"],
-        "City": row["City"],
-        "SF_URL": row["Salesforce_URL"],
-    })
+    county_properties.setdefault(c, []).append(
+        {
+            "Address": row["Address"],
+            "City": row["City"],
+            "SF_URL": row["Salesforce_URL"],
+        }
+    )
 
 # -----------------------------
-# 4. ADD POPUP HTML + PROP_COUNT TO EACH COUNTY
+# 4. ENRICH GEOJSON WITH PROP_COUNT + POPUP_HTML
 # -----------------------------
 
 for feature in tn_geo["features"]:
     props = feature["properties"]
-    name = props["NAME"]
-    name_up = name.upper()
+    name = props["name"] if "name" in props else props.get("NAME", "")
+    # Eric Clst file uses 'name' not 'NAME'; normalize:
+    county_name = str(name).split(" County")[0]
+    name_up = county_name.upper()
 
     count = county_counts.get(name_up, 0)
     props_list = county_properties.get(name_up, [])
 
     props["PROP_COUNT"] = int(count)
 
+    # Build popup HTML
     lines = [
-        f"<h4>{name} County</h4>",
+        f"<h4>{county_name} County</h4>",
         f"<b>Properties sold:</b> {count}<br>",
     ]
 
-    # Scrollable list so big counties don't blow up the screen
     if props_list:
-        lines.append('<div style="max-height: 260px; overflow-y: auto; margin-top: 4px;">')
+        # Scrollable container so big counties (e.g. Davidson) fit on screen
+        lines.append(
+            '<div style="max-height: 260px; overflow-y: auto; margin-top: 4px;">'
+        )
         lines.append("<ul style='padding-left:18px; margin:0;'>")
         for p in props_list:
             addr = p["Address"]
@@ -100,38 +115,59 @@ for feature in tn_geo["features"]:
                     f'<li style="margin-bottom:2px;"><a href="{url}" target="_blank">{display_text}</a></li>'
                 )
             else:
-                lines.append(f"<li style='margin-bottom:2px;'>{display_text}</li>")
+                lines.append(
+                    f"<li style='margin-bottom:2px;'>{display_text}</li>"
+                )
         lines.append("</ul>")
         lines.append("</div>")
 
     props["POPUP_HTML"] = "\n".join(lines)
+    # Also keep a NAME field for tooltip consistency
+    props["NAME"] = county_name
 
 # -----------------------------
 # 5. COLOR SCALE FUNCTION
 # -----------------------------
 
+
 def category_color(v: int) -> str:
     if v == 0:
-        return "#FFFFFF"
+        return "#FFFFFF"  # white
     if v == 1:
-        return "#ADD8E6"      # light blue
+        return "#ADD8E6"  # light blue
     if 2 <= v <= 5:
-        return "#F4A6A6"      # light red
+        return "#F4A6A6"  # light red
     if 6 <= v <= 10:
-        return "#FFFACD"      # light yellow
-    return "#90EE90"          # light green (>10)
+        return "#FFFACD"  # light yellow
+    return "#90EE90"  # light green (>10)
+
 
 # -----------------------------
 # 6. BUILD THE FOLIUM MAP
 # -----------------------------
 
-# Compute center of TN
-lats = [float(f["properties"]["INTPTLAT"]) for f in tn_geo["features"]]
-lons = [float(f["properties"]["INTPTLON"]) for f in tn_geo["features"]]
-center_lat = sum(lats) / len(lats)
-center_lon = sum(lons) / len(lons)
+# Some Eric Clst county files have 'INTPTLAT' / 'INTPTLON' in properties; if not, use a TN center fallback
+lats = []
+lons = []
+for f in tn_geo["features"]:
+    props = f["properties"]
+    lat = props.get("INTPTLAT")
+    lon = props.get("INTPTLON")
+    try:
+        if lat is not None and lon is not None:
+            lats.append(float(lat))
+            lons.append(float(lon))
+    except Exception:
+        pass
+
+if lats and lons:
+    center_lat = sum(lats) / len(lats)
+    center_lon = sum(lons) / len(lons)
+else:
+    center_lat, center_lon = 35.8, -86.4  # rough center of TN
 
 m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="cartodbpositron")
+
 
 def style_function(feature):
     v = feature["properties"].get("PROP_COUNT", 0)
@@ -141,6 +177,7 @@ def style_function(feature):
         "weight": 0.5,
         "fillOpacity": 0.9,
     }
+
 
 folium.GeoJson(
     tn_geo,
