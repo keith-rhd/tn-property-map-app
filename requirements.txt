@@ -4,4 +4,3 @@ folium
 streamlit-folium
 requests
 numpy
-import requests
