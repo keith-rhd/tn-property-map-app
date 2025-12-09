@@ -1,5 +1,3 @@
-import json
-
 import pandas as pd
 import requests
 import streamlit as st
@@ -19,14 +17,14 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTw_-UeODGJQFKDMVXM
 def load_data():
     df = pd.read_csv(SHEET_URL)
 
-    # Expecting columns: Address, City, County, Salesforce_URL
+    # Must have these columns
     required_cols = {"Address", "City", "County", "Salesforce_URL"}
     missing = required_cols - set(df.columns)
     if missing:
         st.error(f"Missing required columns in sheet: {missing}")
         st.stop()
 
-    # If Status column is missing, default everything to "Sold"
+    # Status: if missing, treat as Sold
     if "Status" not in df.columns:
         df["Status"] = "Sold"
     else:
@@ -79,8 +77,7 @@ def load_geojson():
     data = resp.json()
 
     tn_features = [
-        f
-        for f in data["features"]
+        f for f in data["features"]
         if f.get("properties", {}).get("STATE") == "47"
     ]
 
@@ -158,20 +155,52 @@ for feature in tn_geo["features"]:
     props["NAME"] = county_name
 
 # -----------------------------
-# 6. COLOR SCALE FUNCTION
+# 6. COLOR SCALES (DIFFERENT BY MODE)
 # -----------------------------
 
 
-def category_color(v: int) -> str:
+def category_color(v: int, mode: str) -> str:
+    """
+    0 = white
+    1 = light
+    2–5 = medium
+    6–10 = darker
+    >10 = darkest
+
+    Sold     -> green scheme
+    Cut Loose-> red scheme
+    Both     -> blue scheme
+    """
     if v == 0:
-        return "#FFFFFF"  # white
-    if v == 1:
-        return "#ADD8E6"  # light blue
-    if 2 <= v <= 5:
-        return "#F4A6A6"  # light red
-    if 6 <= v <= 10:
-        return "#FFFACD"  # light yellow
-    return "#90EE90"  # light green (>10)
+        return "#FFFFFF"
+
+    if mode == "Sold":
+        # greens
+        if v == 1:
+            return "#e5f5e0"
+        if 2 <= v <= 5:
+            return "#a1d99b"
+        if 6 <= v <= 10:
+            return "#41ab5d"
+        return "#006d2c"
+    elif mode == "Cut Loose":
+        # reds
+        if v == 1:
+            return "#fee5d9"
+        if 2 <= v <= 5:
+            return "#fcae91"
+        if 6 <= v <= 10:
+            return "#fb6a4a"
+        return "#cb181d"
+    else:
+        # Both -> blue scheme
+        if v == 1:
+            return "#deebf7"
+        if 2 <= v <= 5:
+            return "#9ecae1"
+        if 6 <= v <= 10:
+            return "#4292c6"
+        return "#084594"
 
 
 # -----------------------------
@@ -186,7 +215,7 @@ m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="cartodbpo
 def style_function(feature):
     v = feature["properties"].get("PROP_COUNT", 0)
     return {
-        "fillColor": category_color(v),
+        "fillColor": category_color(v, mode),
         "color": "black",
         "weight": 0.5,
         "fillOpacity": 0.9,
@@ -213,35 +242,87 @@ folium.GeoJson(
 ).add_to(m)
 
 # -----------------------------
-# 8. ADD LEGEND (NO WATERMARK)
+# 8. ADD LEGEND (MODE-AWARE, NO WATERMARK)
 # -----------------------------
 
-legend_html = """
+if mode == "Sold":
+    legend_title = "Sold properties"
+elif mode == "Cut Loose":
+    legend_title = "Cut loose properties"
+else:
+    legend_title = "Total properties"
+
+legend_html = f"""
 <div style="
     position: fixed; 
     bottom: 80px; left: 30px; 
-    width: 210px; height: 170px; 
+    width: 230px; height: 170px; 
     background-color: white; 
     color: black;
     z-index:9999; font-size:14px;
     border:2px solid grey; 
     border-radius:8px; 
     padding:10px;">
-<b>Legend</b><br>
-<span style="background:#FFFFFF; border:1px solid #000; padding:2px 12px;"></span> 0 properties<br>
-<span style="background:#ADD8E6; border:1px solid #000; padding:2px 12px;"></span> 1 property<br>
-<span style="background:#F4A6A6; border:1px solid #000; padding:2px 12px;"></span> 2–5 properties<br>
-<span style="background:#FFFACD; border:1px solid #000; padding:2px 12px;"></span> 6–10 properties<br>
-<span style="background:#90EE90; border:1px solid #000; padding:2px 12px;"></span> >10 properties
+<b>Legend – {legend_title}</b><br>
+<span style="background:{category_color(1, mode)}; border:1px solid #000; padding:2px 12px;"></span> 1 property<br>
+<span style="background:{category_color(2, mode)}; border:1px solid #000; padding:2px 12px;"></span> 2–5 properties<br>
+<span style="background:{category_color(6, mode)}; border:1px solid #000; padding:2px 12px;"></span> 6–10 properties<br>
+<span style="background:{category_color(11, mode)}; border:1px solid #000; padding:2px 12px;"></span> >10 properties<br>
+<span style="background:#FFFFFF; border:1px solid #000; padding:2px 12px;"></span> 0 properties
 </div>
 """
 m.get_root().html.add_child(folium.Element(legend_html))
 
 # -----------------------------
-# 9. DISPLAY IN STREAMLIT
+# 9. DISPLAY MAP IN STREAMLIT
 # -----------------------------
 
 st.title("Tennessee Property Acquisition Map")
 st.write("This map pulls live data from your Google Sheet.")
 
 st_folium(m, width=900, height=650)
+
+# -----------------------------
+# 10. COUNTY-LEVEL CONVERSION SUMMARY
+# -----------------------------
+
+st.subheader("County Conversion Summary (Sold vs Cut Loose)")
+
+# Normalize statuses for summary
+df_conv = df.copy()
+df_conv["Status_norm"] = df_conv["Status"].str.lower().str.strip()
+mask = df_conv["Status_norm"].isin(["sold", "cut loose"])
+df_conv = df_conv[mask].copy()
+
+grp = df_conv.groupby("County_clean_up")
+
+sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum())
+cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
+total_counts = sold_counts + cut_counts
+
+conv_rate = sold_counts / total_counts.replace(0, pd.NA)
+
+summary = (
+    pd.DataFrame(
+        {
+            "County_clean_up": sold_counts.index,
+            "Sold": sold_counts.values,
+            "Cut_Loose": cut_counts.values,
+            "Total": total_counts.values,
+            "Conversion_Rate": conv_rate.values,
+        }
+    )
+    .sort_values("Conversion_Rate", ascending=False)
+)
+
+# Nice display names
+summary["County"] = summary["County_clean_up"].str.title()
+summary["Conversion_Rate"] = (summary["Conversion_Rate"] * 100).round(1)
+
+summary = summary[["County", "Sold", "Cut_Loose", "Total", "Conversion_Rate"]]
+
+st.dataframe(
+    summary,
+    use_container_width=True,
+    hide_index=True,
+)
