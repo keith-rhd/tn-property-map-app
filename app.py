@@ -40,14 +40,16 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# 2. LOAD TN COUNTY GEOJSON (LOCAL FILE)
+# 2. LOAD TN COUNTY GEOJSON (LIVE FROM WEB)
 # -----------------------------
+import requests
 
 @st.cache_data
 def load_geojson():
-    url = "https://eric.clst.org/assets/us/json/county/47.json"
-    return requests.get(url).json()
+    TN_GEOJSON_URL = "https://eric.clst.org/assets/us/json/county/47.json"
+    return requests.get(TN_GEOJSON_URL).json()
 
+tn_geo = load_geojson()
 
 # -----------------------------
 # 3. BUILD COUNTY PROPERTY COUNTS + LISTS
