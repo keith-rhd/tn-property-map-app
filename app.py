@@ -26,6 +26,12 @@ def load_data():
         st.error(f"Missing required columns in sheet: {missing}")
         st.stop()
 
+    # If Status column is missing, default everything to "Sold"
+    if "Status" not in df.columns:
+        df["Status"] = "Sold"
+    else:
+        df["Status"] = df["Status"].fillna("Sold")
+
     # Normalize county names
     df["County_clean"] = (
         df["County"]
@@ -44,7 +50,23 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# 2. LOAD TN COUNTY GEOJSON FROM WEB (PLOTLY DATASET)
+# 2. UI TOGGLE: SOLD vs CUT LOOSE vs BOTH
+# -----------------------------
+
+mode = st.radio(
+    "Which properties do you want to view?",
+    ["Sold", "Cut Loose", "Both"],
+    index=0,
+    horizontal=True,
+)
+
+if mode == "Both":
+    df_use = df.copy()
+else:
+    df_use = df[df["Status"].str.lower() == mode.lower()].copy()
+
+# -----------------------------
+# 3. LOAD TN COUNTY GEOJSON FROM WEB (PLOTLY DATASET)
 # -----------------------------
 
 
@@ -71,13 +93,13 @@ def load_geojson():
 tn_geo = load_geojson()
 
 # -----------------------------
-# 3. BUILD COUNTY PROPERTY COUNTS + LISTS
+# 4. BUILD COUNTY PROPERTY COUNTS + LISTS (BASED ON FILTERED DATA)
 # -----------------------------
 
-county_counts = df.groupby("County_clean_up").size().to_dict()
+county_counts = df_use.groupby("County_clean_up").size().to_dict()
 
 county_properties = {}
-for _, row in df.iterrows():
+for _, row in df_use.iterrows():
     c = row["County_clean_up"]
     county_properties.setdefault(c, []).append(
         {
@@ -88,7 +110,7 @@ for _, row in df.iterrows():
     )
 
 # -----------------------------
-# 4. ENRICH GEOJSON WITH PROP_COUNT + POPUP_HTML
+# 5. ENRICH GEOJSON WITH PROP_COUNT + POPUP_HTML
 # -----------------------------
 
 for feature in tn_geo["features"]:
@@ -106,7 +128,7 @@ for feature in tn_geo["features"]:
     # Build popup HTML: county, count, scrollable list of properties
     lines = [
         f"<h4>{county_name} County</h4>",
-        f"<b>Properties sold:</b> {count}<br>",
+        f"<b>Properties {mode.lower()}:</b> {count}<br>",
     ]
 
     if props_list:
@@ -136,7 +158,7 @@ for feature in tn_geo["features"]:
     props["NAME"] = county_name
 
 # -----------------------------
-# 5. COLOR SCALE FUNCTION
+# 6. COLOR SCALE FUNCTION
 # -----------------------------
 
 
@@ -153,10 +175,9 @@ def category_color(v: int) -> str:
 
 
 # -----------------------------
-# 6. BUILD THE FOLIUM MAP
+# 7. BUILD THE FOLIUM MAP
 # -----------------------------
 
-# Use a fixed TN center (simple & robust)
 center_lat, center_lon = 35.8, -86.4
 
 m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="cartodbpositron")
@@ -178,7 +199,7 @@ folium.GeoJson(
     style_function=style_function,
     tooltip=folium.GeoJsonTooltip(
         fields=["NAME", "PROP_COUNT"],
-        aliases=["County:", "Properties sold:"],
+        aliases=["County:", "Properties:"],
         localize=True,
         sticky=False,
     ),
@@ -192,7 +213,7 @@ folium.GeoJson(
 ).add_to(m)
 
 # -----------------------------
-# 7. ADD LEGEND + WATERMARK
+# 8. ADD LEGEND (NO WATERMARK)
 # -----------------------------
 
 legend_html = """
@@ -217,11 +238,10 @@ legend_html = """
 m.get_root().html.add_child(folium.Element(legend_html))
 
 # -----------------------------
-# 8. DISPLAY IN STREAMLIT
+# 9. DISPLAY IN STREAMLIT
 # -----------------------------
 
-st.title("Closed Won RHD Map")
+st.title("Tennessee Property Acquisition Map")
 st.write("This map pulls live data from your Google Sheet.")
 
-st_folium(m, width=1600, height=650)
-
+st_folium(m, width=900, height=650)
