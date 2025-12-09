@@ -187,7 +187,7 @@ folium.GeoJson(
         labels=False,
         localize=True,
         parse_html=True,
-        max_width=500,
+        max_width=700,
     ),
 ).add_to(m)
 
