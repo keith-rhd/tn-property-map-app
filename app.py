@@ -35,7 +35,7 @@ def load_data():
     )
     df["County_clean_up"] = df["County_clean"].str.upper()
 
-    # Fix any known typos
+    # Fix known typo if it appears
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
 
     return df
@@ -44,17 +44,28 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# 2. LOAD TN COUNTY GEOJSON FROM WEB
+# 2. LOAD TN COUNTY GEOJSON FROM WEB (PLOTLY DATASET)
 # -----------------------------
 
 
 @st.cache_data
 def load_geojson():
-    # Tennessee counties only (FIPS 47)
-    url = "https://eric.clst.org/assets/us/json/county/47.json"
+    # Full US counties GeoJSON from Plotly, then filter to Tennessee (STATE == "47")
+    url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
     resp = requests.get(url)
     resp.raise_for_status()
-    return resp.json()
+    data = resp.json()
+
+    tn_features = [
+        f
+        for f in data["features"]
+        if f.get("properties", {}).get("STATE") == "47"
+    ]
+
+    return {
+        "type": "FeatureCollection",
+        "features": tn_features,
+    }
 
 
 tn_geo = load_geojson()
@@ -82,9 +93,9 @@ for _, row in df.iterrows():
 
 for feature in tn_geo["features"]:
     props = feature["properties"]
-    name = props["name"] if "name" in props else props.get("NAME", "")
-    # Eric Clst file uses 'name' not 'NAME'; normalize:
-    county_name = str(name).split(" County")[0]
+
+    # Plotly counties use NAME = county name (e.g., "Davidson")
+    county_name = str(props.get("NAME", "")).strip()
     name_up = county_name.upper()
 
     count = county_counts.get(name_up, 0)
@@ -92,14 +103,13 @@ for feature in tn_geo["features"]:
 
     props["PROP_COUNT"] = int(count)
 
-    # Build popup HTML
+    # Build popup HTML: county, count, scrollable list of properties
     lines = [
         f"<h4>{county_name} County</h4>",
         f"<b>Properties sold:</b> {count}<br>",
     ]
 
     if props_list:
-        # Scrollable container so big counties (e.g. Davidson) fit on screen
         lines.append(
             '<div style="max-height: 260px; overflow-y: auto; margin-top: 4px;">'
         )
@@ -122,7 +132,7 @@ for feature in tn_geo["features"]:
         lines.append("</div>")
 
     props["POPUP_HTML"] = "\n".join(lines)
-    # Also keep a NAME field for tooltip consistency
+    # Ensure NAME exists for tooltip
     props["NAME"] = county_name
 
 # -----------------------------
@@ -146,25 +156,8 @@ def category_color(v: int) -> str:
 # 6. BUILD THE FOLIUM MAP
 # -----------------------------
 
-# Some Eric Clst county files have 'INTPTLAT' / 'INTPTLON' in properties; if not, use a TN center fallback
-lats = []
-lons = []
-for f in tn_geo["features"]:
-    props = f["properties"]
-    lat = props.get("INTPTLAT")
-    lon = props.get("INTPTLON")
-    try:
-        if lat is not None and lon is not None:
-            lats.append(float(lat))
-            lons.append(float(lon))
-    except Exception:
-        pass
-
-if lats and lons:
-    center_lat = sum(lats) / len(lats)
-    center_lon = sum(lons) / len(lons)
-else:
-    center_lat, center_lon = 35.8, -86.4  # rough center of TN
+# Use a fixed TN center (simple & robust)
+center_lat, center_lon = 35.8, -86.4
 
 m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="cartodbpositron")
 
@@ -246,3 +239,4 @@ st.title("Tennessee Property Acquisition Map")
 st.write("This map pulls live data from your Google Sheet.")
 
 st_folium(m, width=900, height=650)
+
