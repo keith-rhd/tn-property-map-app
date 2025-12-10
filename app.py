@@ -296,7 +296,6 @@ folium.GeoJson(
     tooltip=folium.GeoJsonTooltip(
         fields=[
             "NAME",
-            "PROP_COUNT",
             "SOLD_COUNT",
             "CUT_COUNT",
             "TOTAL_COUNT",
@@ -304,7 +303,6 @@ folium.GeoJson(
         ],
         aliases=[
             "County:",
-            "Properties (current view):",
             "Sold:",
             "Cut loose:",
             "Total deals:",
