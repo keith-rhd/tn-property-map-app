@@ -314,11 +314,16 @@ folium.GeoJson(
         sticky=False,
     ),
     popup=folium.GeoJsonPopup(
-        fields=["POPUP_HTML"],
-        labels=False,
-        localize=True,
-        parse_html=True,
-        max_width=500,
+    fields=["POPUP_HTML"],
+    labels=False,
+    localize=True,
+    parse_html=True,
+    max_width=430,  # smaller popup
+    style="""
+        font-size: 14px;
+        line-height: 1.25;
+        padding: 4px;
+    """
     ),
 ).add_to(m)
 
