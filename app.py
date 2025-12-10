@@ -175,14 +175,13 @@ for feature in tn_geo["features"]:
     props["CLOSE_RATE_STR"] = close_str
 
     # Build popup HTML
-    lines = [
-        f"<h4>{county_name} County</h4>",
-        f"<b>Properties ({mode} view):</b> {view_count}<br>",
-        f"<b>Sold:</b> {sold}<br>",
-        f"<b>Cut loose:</b> {cut}<br>",
-        f"<b>Total deals:</b> {total}<br>",
-        f"<b>Close rate:</b> {close_str}<br>",
-    ]
+  lines = [
+    f"<h4>{county_name} County</h4>",
+    f"<b>Sold:</b> {sold}<br>",
+    f"<b>Cut loose:</b> {cut}<br>",
+    f"<b>Total deals:</b> {total}<br>",
+    f"<b>Close rate:</b> {close_str}<br>",
+]
 
     props_list = county_properties.get(name_up, [])
     if props_list:
@@ -336,24 +335,49 @@ else:
 
 legend_html = f"""
 <div style="
-    position: fixed; 
-    bottom: 80px; left: 30px; 
-    width: 250px; height: 190px; 
-    background-color: white; 
+    position: fixed;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(255,255,255,0.85);
     color: black;
-    z-index:9999; font-size:14px;
-    border:2px solid grey; 
-    border-radius:8px; 
-    padding:10px;">
-<b>Legend – {legend_title}</b><br>
-<span style="background:{category_color(1, mode)}; border:1px solid #000; padding:2px 12px;"></span> 1 property<br>
-<span style="background:{category_color(2, mode)}; border:1px solid #000; padding:2px 12px;"></span> 2–5 properties<br>
-<span style="background:{category_color(6, mode)}; border:1px solid #000; padding:2px 12px;"></span> 6–10 properties<br>
-<span style="background:{category_color(11, mode)}; border:1px solid #000; padding:2px 12px;"></span> >10 properties<br>
-<span style="background:#FFFFFF; border:1px solid #000; padding:2px 12px;"></span> 0 properties or below threshold
+    z-index: 9999;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid #888;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+">
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:{category_color(1, mode)}; border:1px solid #000;"></div>
+        1
+    </span>
+
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:{category_color(2, mode)}; border:1px solid #000;"></div>
+        2–5
+    </span>
+
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:{category_color(6, mode)}; border:1px solid #000;"></div>
+        6–10
+    </span>
+
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:{category_color(11, mode)}; border:1px solid #000;"></div>
+        >10
+    </span>
+
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div>
+        0 / filtered out
+    </span>
 </div>
 """
 m.get_root().html.add_child(folium.Element(legend_html))
+
 
 # -----------------------------
 # 11. DISPLAY MAP IN STREAMLIT
