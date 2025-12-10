@@ -359,7 +359,7 @@ m.get_root().html.add_child(folium.Element(legend_html))
 # 11. DISPLAY MAP IN STREAMLIT
 # -----------------------------
 
-st.title("Tennessee Property Acquisition Map")
+st.title("Closed RHD Properties Map")
 st.write("This map pulls live data from your Google Sheet.")
 
-st_folium(m, width=900, height=650)
+st_folium(m, width=1400, height=600)
