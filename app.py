@@ -186,7 +186,7 @@ for feature in tn_geo["features"]:
     props_list = county_properties.get(name_up, [])
     if props_list:
         lines.append(
-            '<div style="max-height: 260px; overflow-y: auto; margin-top: 4px;">'
+            '<div style="max-height: 220px; overflow-y: auto; margin-top: 2px; font-size: 13px;">'
         )
         lines.append("<ul style='padding-left:18px; margin:0;'>")
         for p in props_list:
