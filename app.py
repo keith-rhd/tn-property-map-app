@@ -175,13 +175,14 @@ for feature in tn_geo["features"]:
     props["CLOSE_RATE_STR"] = close_str
 
     # Build popup HTML
-  lines = [
-    f"<h4>{county_name} County</h4>",
-    f"<b>Sold:</b> {sold}<br>",
-    f"<b>Cut loose:</b> {cut}<br>",
-    f"<b>Total deals:</b> {total}<br>",
-    f"<b>Close rate:</b> {close_str}<br>",
-]
+    lines = [
+        f"<h4>{county_name} County</h4>",
+        f"<b>Properties ({mode} view):</b> {view_count}<br>",
+        f"<b>Sold:</b> {sold}<br>",
+        f"<b>Cut loose:</b> {cut}<br>",
+        f"<b>Total deals:</b> {total}<br>",
+        f"<b>Close rate:</b> {close_str}<br>",
+    ]
 
     props_list = county_properties.get(name_up, [])
     if props_list:
