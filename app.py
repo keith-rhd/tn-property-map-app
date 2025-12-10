@@ -58,13 +58,45 @@ mode = st.radio(
     horizontal=True,
 )
 
+# -----------------------------
+# 3. COMPUTE CLOSE RATE STATS (FROM FULL DATA)
+# -----------------------------
+
+df_conv = df.copy()
+df_conv["Status_norm"] = df_conv["Status"].str.lower().str.strip()
+mask = df_conv["Status_norm"].isin(["sold", "cut loose"])
+df_conv = df_conv[mask].copy()
+
+grp = df_conv.groupby("County_clean_up")
+sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum())
+cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
+total_counts = sold_counts + cut_counts
+
+# For slider: max total deals in any county
+max_total = int(total_counts.max()) if len(total_counts) > 0 else 0
+
+min_total = st.slider(
+    "Show only counties with at least this many total deals (Sold + Cut Loose)",
+    min_value=0,
+    max_value=max_total if max_total > 0 else 0,
+    value=0,
+    step=1,
+)
+
+sold_counts_dict = sold_counts.to_dict()
+cut_counts_dict = cut_counts.to_dict()
+
+# -----------------------------
+# 4. APPLY MODE FILTER TO DATA FOR CURRENT VIEW
+# -----------------------------
+
 if mode == "Both":
     df_use = df.copy()
 else:
     df_use = df[df["Status"].str.lower() == mode.lower()].copy()
 
 # -----------------------------
-# 3. LOAD TN COUNTY GEOJSON FROM WEB (PLOTLY DATASET)
+# 5. LOAD TN COUNTY GEOJSON FROM WEB (PLOTLY DATASET)
 # -----------------------------
 
 
@@ -91,7 +123,7 @@ def load_geojson():
 tn_geo = load_geojson()
 
 # -----------------------------
-# 4. BUILD COUNTY PROPERTY COUNTS + LISTS (BASED ON FILTERED DATA)
+# 6. BUILD COUNTY PROPERTY COUNTS + LISTS (BASED ON FILTERED DATA)
 # -----------------------------
 
 county_counts = df_use.groupby("County_clean_up").size().to_dict()
@@ -108,27 +140,7 @@ for _, row in df_use.iterrows():
     )
 
 # -----------------------------
-# 5. COMPUTE CONVERSION RATES PER COUNTY (FROM FULL DATA)
-# -----------------------------
-
-df_conv = df.copy()
-df_conv["Status_norm"] = df_conv["Status"].str.lower().str.strip()
-mask = df_conv["Status_norm"].isin(["sold", "cut loose"])
-df_conv = df_conv[mask].copy()
-
-grp = df_conv.groupby("County_clean_up")
-
-sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum())
-cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
-total_counts = sold_counts + cut_counts
-
-conv_rate = sold_counts / total_counts.replace(0, pd.NA)  # fraction 0–1
-
-# Dict: COUNTY -> conversion fraction (e.g., 0.73)
-conversion_dict = conv_rate.to_dict()
-
-# -----------------------------
-# 6. ENRICH GEOJSON WITH PROP_COUNT + POPUP_HTML + CONVERSION
+# 7. ENRICH GEOJSON WITH COUNTS + CLOSE RATE + POPUP_HTML
 # -----------------------------
 
 for feature in tn_geo["features"]:
@@ -138,29 +150,41 @@ for feature in tn_geo["features"]:
     county_name = str(props.get("NAME", "")).strip()
     name_up = county_name.upper()
 
-    count = county_counts.get(name_up, 0)
-    props_list = county_properties.get(name_up, [])
+    # Counts for current view ( Sold / Cut Loose / Both )
+    view_count = county_counts.get(name_up, 0)
 
-    # Conversion
-    conv_val = conversion_dict.get(name_up)
-    if pd.notna(conv_val):
-        conv_pct = float(conv_val * 100.0)
-        conv_str = f"{conv_pct:.1f}%"
+    # Sold / Cut Loose / Total from *all* data
+    sold = int(sold_counts_dict.get(name_up, 0))
+    cut = int(cut_counts_dict.get(name_up, 0))
+    total = sold + cut
+
+    # Close rate
+    if total > 0:
+        close_frac = sold / total
+        close_pct = close_frac * 100.0
+        close_str = f"{close_pct:.1f}%"
     else:
-        conv_pct = None
-        conv_str = "N/A"
+        close_frac = None
+        close_str = "N/A"
 
-    props["PROP_COUNT"] = int(count)
-    props["CONVERSION"] = conv_pct
-    props["CONVERSION_STR"] = conv_str
+    props["PROP_COUNT"] = int(view_count)
+    props["SOLD_COUNT"] = sold
+    props["CUT_COUNT"] = cut
+    props["TOTAL_COUNT"] = total
+    props["CLOSE_RATE"] = close_frac
+    props["CLOSE_RATE_STR"] = close_str
 
-    # Build popup HTML: county, count, conversion, scrollable list of properties
+    # Build popup HTML
     lines = [
         f"<h4>{county_name} County</h4>",
-        f"<b>Properties {mode.lower()}:</b> {count}<br>",
-        f"<b>Conversion:</b> {conv_str}<br>",
+        f"<b>Properties ({mode} view):</b> {view_count}<br>",
+        f"<b>Sold:</b> {sold}<br>",
+        f"<b>Cut loose:</b> {cut}<br>",
+        f"<b>Total deals:</b> {total}<br>",
+        f"<b>Close rate:</b> {close_str}<br>",
     ]
 
+    props_list = county_properties.get(name_up, [])
     if props_list:
         lines.append(
             '<div style="max-height: 260px; overflow-y: auto; margin-top: 4px;">'
@@ -184,11 +208,10 @@ for feature in tn_geo["features"]:
         lines.append("</div>")
 
     props["POPUP_HTML"] = "\n".join(lines)
-    # Ensure NAME exists for tooltip
-    props["NAME"] = county_name
+    props["NAME"] = county_name  # ensure for tooltip
 
 # -----------------------------
-# 7. COLOR SCALES (DIFFERENT BY MODE)
+# 8. COLOR SCALES (DIFFERENT BY MODE)
 # -----------------------------
 
 
@@ -237,7 +260,7 @@ def category_color(v: int, mode: str) -> str:
 
 
 # -----------------------------
-# 8. BUILD THE FOLIUM MAP
+# 9. BUILD THE FOLIUM MAP
 # -----------------------------
 
 center_lat, center_lon = 35.8, -86.4
@@ -246,7 +269,19 @@ m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="cartodbpo
 
 
 def style_function(feature):
-    v = feature["properties"].get("PROP_COUNT", 0)
+    props = feature["properties"]
+    v = props.get("PROP_COUNT", 0)
+    total = props.get("TOTAL_COUNT", 0)
+
+    # Apply min_total filter: counties below threshold go white
+    if total < min_total:
+        return {
+            "fillColor": "#FFFFFF",
+            "color": "black",
+            "weight": 0.5,
+            "fillOpacity": 0.2,
+        }
+
     return {
         "fillColor": category_color(v, mode),
         "color": "black",
@@ -260,8 +295,22 @@ folium.GeoJson(
     name="TN Counties",
     style_function=style_function,
     tooltip=folium.GeoJsonTooltip(
-        fields=["NAME", "PROP_COUNT", "CONVERSION_STR"],
-        aliases=["County:", "Properties:", "Conversion:"],
+        fields=[
+            "NAME",
+            "PROP_COUNT",
+            "SOLD_COUNT",
+            "CUT_COUNT",
+            "TOTAL_COUNT",
+            "CLOSE_RATE_STR",
+        ],
+        aliases=[
+            "County:",
+            "Properties (current view):",
+            "Sold:",
+            "Cut loose:",
+            "Total deals:",
+            "Close rate:",
+        ],
         localize=True,
         sticky=False,
     ),
@@ -275,7 +324,7 @@ folium.GeoJson(
 ).add_to(m)
 
 # -----------------------------
-# 9. ADD LEGEND (MODE-AWARE, NO WATERMARK)
+# 10. LEGEND (MODE-AWARE)
 # -----------------------------
 
 if mode == "Sold":
@@ -289,7 +338,7 @@ legend_html = f"""
 <div style="
     position: fixed; 
     bottom: 80px; left: 30px; 
-    width: 230px; height: 170px; 
+    width: 250px; height: 190px; 
     background-color: white; 
     color: black;
     z-index:9999; font-size:14px;
@@ -301,13 +350,13 @@ legend_html = f"""
 <span style="background:{category_color(2, mode)}; border:1px solid #000; padding:2px 12px;"></span> 2–5 properties<br>
 <span style="background:{category_color(6, mode)}; border:1px solid #000; padding:2px 12px;"></span> 6–10 properties<br>
 <span style="background:{category_color(11, mode)}; border:1px solid #000; padding:2px 12px;"></span> >10 properties<br>
-<span style="background:#FFFFFF; border:1px solid #000; padding:2px 12px;"></span> 0 properties
+<span style="background:#FFFFFF; border:1px solid #000; padding:2px 12px;"></span> 0 properties or below threshold
 </div>
 """
 m.get_root().html.add_child(folium.Element(legend_html))
 
 # -----------------------------
-# 10. DISPLAY MAP IN STREAMLIT
+# 11. DISPLAY MAP IN STREAMLIT
 # -----------------------------
 
 st.title("Tennessee Property Acquisition Map")
