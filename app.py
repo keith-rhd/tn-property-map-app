@@ -362,4 +362,4 @@ m.get_root().html.add_child(folium.Element(legend_html))
 st.title("Closed RHD Properties Map")
 st.write("This map pulls live data from your Google Sheet.")
 
-st_folium(m, width=1400, height=600)
+st_folium(m, width=1600, height=500)
