@@ -304,6 +304,7 @@ folium.GeoJson(
         ],
         aliases=[
             "County:",
+            "Properties (current view):",
             "Sold:",
             "Cut loose:",
             "Total deals:",
