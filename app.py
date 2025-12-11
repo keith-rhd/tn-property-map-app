@@ -387,6 +387,6 @@ m.get_root().html.add_child(folium.Element(legend_html))
 # -----------------------------
 
 st.title("Closed RHD Properties Map")
-st.write("This map pulls live data from your Google Sheet.")
+st.write("This map's last data pull was on 12/11/2025")
 
 st_folium(m, width=1600, height=500)
