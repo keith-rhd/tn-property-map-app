@@ -19,27 +19,21 @@ def load_data():
         st.error(f"Missing required columns in sheet: {missing}")
         st.stop()
 
-    # Status
     if "Status" not in df.columns:
         df["Status"] = "Sold"
     df["Status"] = df["Status"].fillna("Sold")
 
-    # Buyer (only needed for Sold rows, but keep safe)
     if "Buyer" not in df.columns:
         df["Buyer"] = ""
     df["Buyer"] = df["Buyer"].fillna("")
 
-    # Normalize county names
     df["County_clean"] = (
         df["County"].astype(str).str.replace(" County", "", case=False).str.strip()
     )
     df["County_clean_up"] = df["County_clean"].str.upper()
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
 
-    # Normalize status for logic
     df["Status_norm"] = df["Status"].astype(str).str.lower().str.strip()
-
-    # Normalize buyer a bit (trim)
     df["Buyer_clean"] = df["Buyer"].astype(str).str.strip()
 
     return df
@@ -48,9 +42,26 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# UI CONTROLS (ONE ROW)
+# Precompute totals (used by slider + close rate)
 # -----------------------------
-col1, col2, col3, col4 = st.columns([1.1, 2.2, 2.2, 1.0], gap="small")
+df_conv = df[df["Status_norm"].isin(["sold", "cut loose"])].copy()
+grp_all = df_conv.groupby("County_clean_up")
+sold_counts = grp_all.apply(lambda g: (g["Status_norm"] == "sold").sum())
+cut_counts = grp_all.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
+total_counts = sold_counts + cut_counts
+max_total = int(total_counts.max()) if len(total_counts) else 0
+
+sold_counts_dict = sold_counts.to_dict()
+cut_counts_dict = cut_counts.to_dict()
+
+# -----------------------------
+# UI CONTROLS (ONE ROW, RE-ORDERED)
+#   Left: View + Hide filter
+#   Right: Buyer + Top buyers
+# -----------------------------
+colL, colR = st.columns([2.6, 2.4], gap="small")
+col1, col2 = colL.columns([1.2, 1.4], gap="small")
+col3, col4 = colR.columns([1.6, 0.8], gap="small")
 
 with col1:
     mode = st.radio(
@@ -58,6 +69,15 @@ with col1:
         ["Sold", "Cut Loose", "Both"],
         index=0,
         horizontal=True,
+    )
+
+with col2:
+    min_total = st.slider(
+        "Hide counties with < N total deals",
+        min_value=0,
+        max_value=max_total if max_total > 0 else 0,
+        value=0,
+        step=1,
     )
 
 # Buyer selector (only meaningful if Sold is part of the view)
@@ -68,7 +88,7 @@ buyers = (
 )
 buyers = sorted([b for b in buyers.unique().tolist() if b])
 
-with col2:
+with col3:
     if mode in ["Sold", "Both"]:
         buyer_choice = st.selectbox(
             "Buyer",
@@ -79,29 +99,8 @@ with col2:
         buyer_choice = "All buyers"
         st.selectbox("Buyer", ["All buyers"], index=0, disabled=True)
 
-# Min deals filter still applies (Sold + Cut Loose totals)
-df_conv = df[df["Status_norm"].isin(["sold", "cut loose"])].copy()
-grp_all = df_conv.groupby("County_clean_up")
-sold_counts = grp_all.apply(lambda g: (g["Status_norm"] == "sold").sum())
-cut_counts = grp_all.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
-total_counts = sold_counts + cut_counts
-
-max_total = int(total_counts.max()) if len(total_counts) else 0
-
-with col3:
-    min_total = st.slider(
-        "Hide counties with < N total deals",
-        min_value=0,
-        max_value=max_total if max_total > 0 else 0,
-        value=0,
-        step=1,
-    )
-
 with col4:
-    TOP_N = st.number_input("Top buyers", min_value=3, max_value=15, value=5, step=1)
-
-sold_counts_dict = sold_counts.to_dict()
-cut_counts_dict = cut_counts.to_dict()
+    TOP_N = st.number_input("Top buyers", min_value=3, max_value=15, value=3, step=1)
 
 buyer_active = (buyer_choice != "All buyers") and (mode in ["Sold", "Both"])
 
@@ -119,14 +118,12 @@ if buyer_active:
 # -----------------------------
 df_sold_all = df[(df["Status_norm"] == "sold") & (df["Buyer_clean"] != "")].copy()
 
-# Group by (County, Buyer) -> count
 buyers_by_county = (
     df_sold_all.groupby(["County_clean_up", "Buyer_clean"])
     .size()
     .reset_index(name="Count")
 )
 
-# Build: county -> list of (buyer, count) sorted desc
 top_buyers_dict = {}
 for county, g in buyers_by_county.groupby("County_clean_up"):
     g_sorted = g.sort_values("Count", ascending=False)
@@ -149,7 +146,6 @@ else:  # Both
     df_cut = df[df["Status_norm"] == "cut loose"].copy()
     df_view = pd.concat([df_sold, df_cut], ignore_index=True)
 
-# County counts + address lists for the current view
 county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 
 county_properties_view = {}
@@ -186,13 +182,11 @@ def category_color(v: int, mode_: str, buyer_active_: bool = False) -> str:
 
     if mode_ == "Sold":
         if buyer_active_:
-            # Stronger greens so "1 property" is clearly visible
             if v == 1: return "#c7e9c0"
             if 2 <= v <= 5: return "#74c476"
             if 6 <= v <= 10: return "#31a354"
             return "#006d2c"
         else:
-            # Original greens
             if v == 1: return "#e5f5e0"
             if 2 <= v <= 5: return "#a1d99b"
             if 6 <= v <= 10: return "#41ab5d"
@@ -204,7 +198,6 @@ def category_color(v: int, mode_: str, buyer_active_: bool = False) -> str:
         if 6 <= v <= 10: return "#fb6a4a"
         return "#cb181d"
 
-    # Both
     if v == 1: return "#deebf7"
     if 2 <= v <= 5: return "#9ecae1"
     if 6 <= v <= 10: return "#4292c6"
@@ -218,7 +211,6 @@ for feature in tn_geo["features"]:
     county_name = str(props.get("NAME", "")).strip()
     name_up = county_name.upper()
 
-    # View count depends on mode + buyer selection
     view_count = int(county_counts_view.get(name_up, 0))
 
     sold = int(sold_counts_dict.get(name_up, 0))
@@ -239,11 +231,10 @@ for feature in tn_geo["features"]:
     props["BUYER_NAME"] = buyer_choice
 
     # ---- Top buyers block (Sold only) ----
-    top_list = top_buyers_dict.get(name_up, [])
-    top_list = top_list[: int(TOP_N)]
+    top_list = top_buyers_dict.get(name_up, [])[: int(TOP_N)]
 
     top_buyers_html = ""
-    if top_list:
+    if top_list and mode in ["Sold", "Both"]:
         top_buyers_html += "<div style='margin-top:6px; margin-bottom:6px;'>"
         top_buyers_html += "<b>Top buyers in this county:</b><br>"
         top_buyers_html += "<ol style='margin:4px 0 0 18px; padding:0;'>"
@@ -251,13 +242,12 @@ for feature in tn_geo["features"]:
             top_buyers_html += f"<li>{b} — {int(c)}</li>"
         top_buyers_html += "</ol></div>"
 
-    # Popup HTML
+    # Popup HTML (condensed)
     lines = [
-        f"<h4 style='margin-bottom:6px;'>{county_name} County</h4>",
-        f"<span style='color:#2ca25f;'>●</span> <b>Sold:</b> {sold}<br>",
+        f"<h4 style='margin-bottom:4px;'>{county_name} County</h4>",
+        f"<span style='color:#2ca25f;'>●</span> <b>Sold:</b> {sold} &nbsp; "
         f"<span style='color:#cb181d;'>●</span> <b>Cut loose:</b> {cut}<br>",
-        f"<b>Total deals:</b> {total}<br>",
-        f"<b>Close rate:</b> {close_str}<br>",
+        f"<b>Total:</b> {total} &nbsp; <b>Close rate:</b> {close_str}<br>",
     ]
 
     if buyer_active:
@@ -266,12 +256,11 @@ for feature in tn_geo["features"]:
     if top_buyers_html:
         lines.append(top_buyers_html)
 
-    lines.append("<br>")
-
     props_list = county_properties_view.get(name_up, [])
     if props_list:
+        # Smaller list window (~5 items) but scrollable
         lines.append(
-            '<div style="max-height: 220px; overflow-y: auto; margin-top: 2px; font-size: 13px;">'
+            '<div style="max-height: 130px; overflow-y: auto; margin-top: 2px; font-size: 13px;">'
         )
         lines.append("<ul style='padding-left:18px; margin:0;'>")
         for p in props_list:
@@ -299,15 +288,12 @@ def style_function(feature):
     p = feature["properties"]
     total = p.get("TOTAL_COUNT", 0)
 
-    # Apply min_total filter
     if total < min_total:
         return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
-    # Buyer highlight: if a buyer is selected, fade counties with 0 buyer_sold
     if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
         return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
-    # Optional improvement: when buyer filter active, color intensity by buyer's count (not overall view count)
     v_for_color = p.get("BUYER_SOLD_COUNT", 0) if buyer_active else p.get("PROP_COUNT", 0)
 
     return {
@@ -318,9 +304,8 @@ def style_function(feature):
     }
 
 tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR"]
-tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total deals:", "Close rate:"]
+tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total:", "Close rate:"]
 
-# Include buyer sold count in hover when buyer selected
 if buyer_active:
     tooltip_fields.append("BUYER_SOLD_COUNT")
     tooltip_aliases.append(f"{buyer_choice} (Sold):")
@@ -342,16 +327,15 @@ folium.GeoJson(
         labels=False,
         localize=True,
         parse_html=True,
-        max_width=430,
+        max_width=420,
         style="""
-            font-size: 14px;
-            line-height: 1.25;
-            padding: 4px;
+            font-size: 13.5px;
+            line-height: 1.2;
+            padding: 3px;
         """,
     ),
 ).add_to(m)
 
-# Bottom bar legend (low profile) — matches buyer palette when buyer_active
 legend_html = f"""
 <div style="
     position: fixed;
