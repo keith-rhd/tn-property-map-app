@@ -373,4 +373,4 @@ legend_html = f"""
 m.get_root().html.add_child(folium.Element(legend_html))
 
 st.title("Closed RHD Properties Map")
-st_folium(m, width=1600, height=600)
+st_folium(m, width=1700, height=630)
