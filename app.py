@@ -94,14 +94,18 @@ with col3:
         step=1,
     )
 
-
 sold_counts_dict = sold_counts.to_dict()
 cut_counts_dict = cut_counts.to_dict()
 
+buyer_active = (buyer_choice != "All buyers") and (mode in ["Sold", "Both"])
+
 # Buyer-specific sold counts by county (for highlighting + stats)
 buyer_sold_counts_dict = {}
-if buyer_choice != "All buyers" and mode in ["Sold", "Both"]:
-    df_buyer_sold = df[(df["Status_norm"] == "sold") & (df["Buyer"].astype(str).str.strip() == buyer_choice)]
+if buyer_active:
+    df_buyer_sold = df[
+        (df["Status_norm"] == "sold")
+        & (df["Buyer"].astype(str).str.strip() == buyer_choice)
+    ]
     buyer_sold_counts_dict = df_buyer_sold.groupby("County_clean_up").size().to_dict()
 
 # -----------------------------
@@ -110,13 +114,13 @@ if buyer_choice != "All buyers" and mode in ["Sold", "Both"]:
 # -----------------------------
 if mode == "Sold":
     df_view = df[df["Status_norm"] == "sold"].copy()
-    if buyer_choice != "All buyers":
+    if buyer_active:
         df_view = df_view[df_view["Buyer"].astype(str).str.strip() == buyer_choice]
 elif mode == "Cut Loose":
     df_view = df[df["Status_norm"] == "cut loose"].copy()
 else:  # Both
     df_sold = df[df["Status_norm"] == "sold"].copy()
-    if buyer_choice != "All buyers":
+    if buyer_active:
         df_sold = df_sold[df_sold["Buyer"].astype(str).str.strip() == buyer_choice]
     df_cut = df[df["Status_norm"] == "cut loose"].copy()
     df_view = pd.concat([df_sold, df_cut], ignore_index=True)
@@ -140,20 +144,24 @@ def load_geojson():
     resp = requests.get(url)
     resp.raise_for_status()
     data = resp.json()
-    tn_features = [f for f in data["features"] if f.get("properties", {}).get("STATE") == "47"]
+    tn_features = [
+        f for f in data["features"]
+        if f.get("properties", {}).get("STATE") == "47"
+    ]
     return {"type": "FeatureCollection", "features": tn_features}
+
 
 tn_geo = load_geojson()
 
 # -----------------------------
-# Color scales by mode
+# Color scales by mode (darker when buyer filter active)
 # -----------------------------
-def category_color(v: int, mode_: str, buyer_active: bool = False) -> str:
+def category_color(v: int, mode_: str, buyer_active_: bool = False) -> str:
     if v == 0:
         return "#FFFFFF"
 
     if mode_ == "Sold":
-        if buyer_active:
+        if buyer_active_:
             # Stronger greens so "1 property" is clearly visible
             if v == 1: return "#c7e9c0"
             if 2 <= v <= 5: return "#74c476"
@@ -195,7 +203,7 @@ for feature in tn_geo["features"]:
 
     close_str = f"{(sold/total)*100:.1f}%" if total > 0 else "N/A"
 
-    buyer_sold = int(buyer_sold_counts_dict.get(name_up, 0)) if buyer_choice != "All buyers" else 0
+    buyer_sold = int(buyer_sold_counts_dict.get(name_up, 0)) if buyer_active else 0
 
     props["NAME"] = county_name
     props["PROP_COUNT"] = view_count
@@ -206,7 +214,7 @@ for feature in tn_geo["features"]:
     props["BUYER_SOLD_COUNT"] = buyer_sold
     props["BUYER_NAME"] = buyer_choice
 
-    # Popup HTML (no "Properties (Current View)")
+    # Popup HTML
     lines = [
         f"<h4 style='margin-bottom:6px;'>{county_name} County</h4>",
         f"<span style='color:#2ca25f;'>●</span> <b>Sold:</b> {sold}<br>",
@@ -215,14 +223,16 @@ for feature in tn_geo["features"]:
         f"<b>Close rate:</b> {close_str}<br>",
     ]
 
-    if buyer_choice != "All buyers" and mode in ["Sold", "Both"]:
+    if buyer_active:
         lines.append(f"<b>{buyer_choice} (Sold):</b> {buyer_sold}<br>")
 
     lines.append("<br>")
 
     props_list = county_properties_view.get(name_up, [])
     if props_list:
-        lines.append('<div style="max-height: 220px; overflow-y: auto; margin-top: 2px; font-size: 13px;">')
+        lines.append(
+            '<div style="max-height: 220px; overflow-y: auto; margin-top: 2px; font-size: 13px;">'
+        )
         lines.append("<ul style='padding-left:18px; margin:0;'>")
         for p in props_list:
             addr = p["Address"]
@@ -230,7 +240,9 @@ for feature in tn_geo["features"]:
             url = p["SF_URL"]
             display_text = f"{addr}, {city}" if city else addr
             if isinstance(url, str) and url.strip():
-                lines.append(f'<li style="margin-bottom:2px;"><a href="{url}" target="_blank">{display_text}</a></li>')
+                lines.append(
+                    f'<li style="margin-bottom:2px;"><a href="{url}" target="_blank">{display_text}</a></li>'
+                )
             else:
                 lines.append(f"<li style='margin-bottom:2px;'>{display_text}</li>")
         lines.append("</ul></div>")
@@ -246,24 +258,30 @@ m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="cartodbpo
 def style_function(feature):
     p = feature["properties"]
     total = p.get("TOTAL_COUNT", 0)
-    view_count = p.get("PROP_COUNT", 0)
 
     # Apply min_total filter
     if total < min_total:
         return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
     # Buyer highlight: if a buyer is selected, fade counties with 0 buyer_sold
-    if buyer_choice != "All buyers" and mode in ["Sold", "Both"]:
-        if p.get("BUYER_SOLD_COUNT", 0) == 0:
-            return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
+    if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
+        return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
-    return {"fillColor": category_color(view_count, mode), "color": "black", "weight": 0.5, "fillOpacity": 0.9}
+    # Optional improvement: when buyer filter active, color intensity by buyer's count (not overall view count)
+    v_for_color = p.get("BUYER_SOLD_COUNT", 0) if buyer_active else p.get("PROP_COUNT", 0)
+
+    return {
+        "fillColor": category_color(v_for_color, mode, buyer_active),
+        "color": "black",
+        "weight": 0.5,
+        "fillOpacity": 0.9,
+    }
 
 tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR"]
 tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total deals:", "Close rate:"]
 
 # Include buyer sold count in hover when buyer selected
-if buyer_choice != "All buyers" and mode in ["Sold", "Both"]:
+if buyer_active:
     tooltip_fields.append("BUYER_SOLD_COUNT")
     tooltip_aliases.append(f"{buyer_choice} (Sold):")
 
@@ -271,7 +289,7 @@ tooltip = folium.GeoJsonTooltip(
     fields=tooltip_fields,
     aliases=tooltip_aliases,
     localize=True,
-    sticky=False
+    sticky=False,
 )
 
 folium.GeoJson(
@@ -289,11 +307,11 @@ folium.GeoJson(
             font-size: 14px;
             line-height: 1.25;
             padding: 4px;
-        """
+        """,
     ),
 ).add_to(m)
 
-# Bottom bar legend (low profile)
+# Bottom bar legend (low profile) — matches buyer palette when buyer_active
 legend_html = f"""
 <div style="
     position: fixed;
@@ -312,16 +330,16 @@ legend_html = f"""
     align-items: center;
 ">
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{category_color(1, mode)}; border:1px solid #000;"></div> 1
+        <div style="width:14px; height:14px; background:{category_color(1, mode, buyer_active)}; border:1px solid #000;"></div> 1
     </span>
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{category_color(2, mode)}; border:1px solid #000;"></div> 2–5
+        <div style="width:14px; height:14px; background:{category_color(2, mode, buyer_active)}; border:1px solid #000;"></div> 2–5
     </span>
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{category_color(6, mode)}; border:1px solid #000;"></div> 6–10
+        <div style="width:14px; height:14px; background:{category_color(6, mode, buyer_active)}; border:1px solid #000;"></div> 6–10
     </span>
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{category_color(11, mode)}; border:1px solid #000;"></div> >10
+        <div style="width:14px; height:14px; background:{category_color(11, mode, buyer_active)}; border:1px solid #000;"></div> >10
     </span>
     <span style='display:flex; align-items:center; gap:4px;'>
         <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div> 0 / hidden
@@ -332,3 +350,4 @@ m.get_root().html.add_child(folium.Element(legend_html))
 
 st.title("Closed RHD Properties Map")
 st_folium(m, width=1600, height=500)
+
