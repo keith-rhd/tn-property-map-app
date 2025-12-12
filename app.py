@@ -45,14 +45,17 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# UI CONTROLS
+# UI CONTROLS (ONE ROW)
 # -----------------------------
-mode = st.radio(
-    "Which properties do you want to view?",
-    ["Sold", "Cut Loose", "Both"],
-    index=0,
-    horizontal=True,
-)
+col1, col2, col3 = st.columns([1.1, 2.2, 2.2], gap="small")
+
+with col1:
+    mode = st.radio(
+        "View",
+        ["Sold", "Cut Loose", "Both"],
+        index=0,
+        horizontal=True,
+    )
 
 # Buyer selector (only meaningful if Sold is part of the view)
 buyers = (
@@ -62,15 +65,16 @@ buyers = (
 )
 buyers = sorted([b for b in buyers.unique().tolist() if b])
 
-buyer_choice = "All buyers"
-if mode in ["Sold", "Both"]:
-    buyer_choice = st.selectbox(
-        "Filter Sold properties by buyer (highlights counties they buy in)",
-        ["All buyers"] + buyers,
-        index=0,
-    )
-else:
-    st.caption("Buyer filter is disabled in Cut Loose mode (buyers apply to Sold only).")
+with col2:
+    if mode in ["Sold", "Both"]:
+        buyer_choice = st.selectbox(
+            "Buyer",
+            ["All buyers"] + buyers,
+            index=0,
+        )
+    else:
+        buyer_choice = "All buyers"
+        st.selectbox("Buyer", ["All buyers"], index=0, disabled=True)
 
 # Min deals filter still applies (Sold + Cut Loose totals)
 df_conv = df[df["Status_norm"].isin(["sold", "cut loose"])].copy()
@@ -80,13 +84,16 @@ cut_counts = grp_all.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
 total_counts = sold_counts + cut_counts
 
 max_total = int(total_counts.max()) if len(total_counts) else 0
-min_total = st.slider(
-    "Show only counties with at least this many total deals (Sold + Cut Loose)",
-    min_value=0,
-    max_value=max_total if max_total > 0 else 0,
-    value=0,
-    step=1,
-)
+
+with col3:
+    min_total = st.slider(
+        "Hide counties with < N total deals",
+        min_value=0,
+        max_value=max_total if max_total > 0 else 0,
+        value=0,
+        step=1,
+    )
+
 
 sold_counts_dict = sold_counts.to_dict()
 cut_counts_dict = cut_counts.to_dict()
