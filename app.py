@@ -39,6 +39,9 @@ def load_data():
     # Normalize status for logic
     df["Status_norm"] = df["Status"].astype(str).str.lower().str.strip()
 
+    # Normalize buyer a bit (trim)
+    df["Buyer_clean"] = df["Buyer"].astype(str).str.strip()
+
     return df
 
 
@@ -47,7 +50,7 @@ df = load_data()
 # -----------------------------
 # UI CONTROLS (ONE ROW)
 # -----------------------------
-col1, col2, col3 = st.columns([1.1, 2.2, 2.2], gap="small")
+col1, col2, col3, col4 = st.columns([1.1, 2.2, 2.2, 1.0], gap="small")
 
 with col1:
     mode = st.radio(
@@ -59,7 +62,7 @@ with col1:
 
 # Buyer selector (only meaningful if Sold is part of the view)
 buyers = (
-    df.loc[df["Status_norm"] == "sold", "Buyer"]
+    df.loc[df["Status_norm"] == "sold", "Buyer_clean"]
     .astype(str)
     .str.strip()
 )
@@ -94,6 +97,9 @@ with col3:
         step=1,
     )
 
+with col4:
+    TOP_N = st.number_input("Top buyers", min_value=3, max_value=15, value=5, step=1)
+
 sold_counts_dict = sold_counts.to_dict()
 cut_counts_dict = cut_counts.to_dict()
 
@@ -104,9 +110,27 @@ buyer_sold_counts_dict = {}
 if buyer_active:
     df_buyer_sold = df[
         (df["Status_norm"] == "sold")
-        & (df["Buyer"].astype(str).str.strip() == buyer_choice)
+        & (df["Buyer_clean"] == buyer_choice)
     ]
     buyer_sold_counts_dict = df_buyer_sold.groupby("County_clean_up").size().to_dict()
+
+# -----------------------------
+# Top buyers by county (from SOLD data only)
+# -----------------------------
+df_sold_all = df[(df["Status_norm"] == "sold") & (df["Buyer_clean"] != "")].copy()
+
+# Group by (County, Buyer) -> count
+buyers_by_county = (
+    df_sold_all.groupby(["County_clean_up", "Buyer_clean"])
+    .size()
+    .reset_index(name="Count")
+)
+
+# Build: county -> list of (buyer, count) sorted desc
+top_buyers_dict = {}
+for county, g in buyers_by_county.groupby("County_clean_up"):
+    g_sorted = g.sort_values("Count", ascending=False)
+    top_buyers_dict[county] = list(zip(g_sorted["Buyer_clean"].tolist(), g_sorted["Count"].tolist()))
 
 # -----------------------------
 # Choose rows included in the CURRENT VIEW (controls map counts + address list)
@@ -115,13 +139,13 @@ if buyer_active:
 if mode == "Sold":
     df_view = df[df["Status_norm"] == "sold"].copy()
     if buyer_active:
-        df_view = df_view[df_view["Buyer"].astype(str).str.strip() == buyer_choice]
+        df_view = df_view[df_view["Buyer_clean"] == buyer_choice]
 elif mode == "Cut Loose":
     df_view = df[df["Status_norm"] == "cut loose"].copy()
 else:  # Both
     df_sold = df[df["Status_norm"] == "sold"].copy()
     if buyer_active:
-        df_sold = df_sold[df_sold["Buyer"].astype(str).str.strip() == buyer_choice]
+        df_sold = df_sold[df_sold["Buyer_clean"] == buyer_choice]
     df_cut = df[df["Status_norm"] == "cut loose"].copy()
     df_view = pd.concat([df_sold, df_cut], ignore_index=True)
 
@@ -214,6 +238,19 @@ for feature in tn_geo["features"]:
     props["BUYER_SOLD_COUNT"] = buyer_sold
     props["BUYER_NAME"] = buyer_choice
 
+    # ---- Top buyers block (Sold only) ----
+    top_list = top_buyers_dict.get(name_up, [])
+    top_list = top_list[: int(TOP_N)]
+
+    top_buyers_html = ""
+    if top_list:
+        top_buyers_html += "<div style='margin-top:6px; margin-bottom:6px;'>"
+        top_buyers_html += "<b>Top buyers in this county:</b><br>"
+        top_buyers_html += "<ol style='margin:4px 0 0 18px; padding:0;'>"
+        for b, c in top_list:
+            top_buyers_html += f"<li>{b} — {int(c)}</li>"
+        top_buyers_html += "</ol></div>"
+
     # Popup HTML
     lines = [
         f"<h4 style='margin-bottom:6px;'>{county_name} County</h4>",
@@ -225,6 +262,9 @@ for feature in tn_geo["features"]:
 
     if buyer_active:
         lines.append(f"<b>{buyer_choice} (Sold):</b> {buyer_sold}<br>")
+
+    if top_buyers_html:
+        lines.append(top_buyers_html)
 
     lines.append("<br>")
 
@@ -350,4 +390,3 @@ m.get_root().html.add_child(folium.Element(legend_html))
 
 st.title("Closed RHD Properties Map")
 st_folium(m, width=1600, height=500)
-
