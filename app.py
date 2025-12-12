@@ -6,10 +6,6 @@ import folium
 
 st.set_page_config(page_title="TN Property Map", layout="wide")
 
-# -----------------------------
-# 1. LOAD LIVE DATA FROM GOOGLE SHEET
-# -----------------------------
-
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTw_-UeODGJQFKDMVXM59CG45SrbADPQpyWcALENIDqT8SUhHFm1URYNP3aB6vudjzpM1mBFRio3rWi/pub?output=csv"
 
 
@@ -17,30 +13,31 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTw_-UeODGJQFKDMVXM
 def load_data():
     df = pd.read_csv(SHEET_URL)
 
-    # Must have these columns
     required_cols = {"Address", "City", "County", "Salesforce_URL"}
     missing = required_cols - set(df.columns)
     if missing:
         st.error(f"Missing required columns in sheet: {missing}")
         st.stop()
 
-    # Status: if missing, treat as Sold
+    # Status
     if "Status" not in df.columns:
         df["Status"] = "Sold"
-    else:
-        df["Status"] = df["Status"].fillna("Sold")
+    df["Status"] = df["Status"].fillna("Sold")
+
+    # Buyer (only needed for Sold rows, but keep safe)
+    if "Buyer" not in df.columns:
+        df["Buyer"] = ""
+    df["Buyer"] = df["Buyer"].fillna("")
 
     # Normalize county names
     df["County_clean"] = (
-        df["County"]
-        .astype(str)
-        .str.replace(" County", "", case=False)
-        .str.strip()
+        df["County"].astype(str).str.replace(" County", "", case=False).str.strip()
     )
     df["County_clean_up"] = df["County_clean"].str.upper()
-
-    # Fix known typo if it appears
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
+
+    # Normalize status for logic
+    df["Status_norm"] = df["Status"].astype(str).str.lower().str.strip()
 
     return df
 
@@ -48,9 +45,8 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# 2. UI TOGGLE: SOLD vs CUT LOOSE vs BOTH
+# UI CONTROLS
 # -----------------------------
-
 mode = st.radio(
     "Which properties do you want to view?",
     ["Sold", "Cut Loose", "Both"],
@@ -58,23 +54,32 @@ mode = st.radio(
     horizontal=True,
 )
 
-# -----------------------------
-# 3. COMPUTE CLOSE RATE STATS (FROM FULL DATA)
-# -----------------------------
+# Buyer selector (only meaningful if Sold is part of the view)
+buyers = (
+    df.loc[df["Status_norm"] == "sold", "Buyer"]
+    .astype(str)
+    .str.strip()
+)
+buyers = sorted([b for b in buyers.unique().tolist() if b])
 
-df_conv = df.copy()
-df_conv["Status_norm"] = df_conv["Status"].str.lower().str.strip()
-mask = df_conv["Status_norm"].isin(["sold", "cut loose"])
-df_conv = df_conv[mask].copy()
+buyer_choice = "All buyers"
+if mode in ["Sold", "Both"]:
+    buyer_choice = st.selectbox(
+        "Filter Sold properties by buyer (highlights counties they buy in)",
+        ["All buyers"] + buyers,
+        index=0,
+    )
+else:
+    st.caption("Buyer filter is disabled in Cut Loose mode (buyers apply to Sold only).")
 
-grp = df_conv.groupby("County_clean_up")
-sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum())
-cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
+# Min deals filter still applies (Sold + Cut Loose totals)
+df_conv = df[df["Status_norm"].isin(["sold", "cut loose"])].copy()
+grp_all = df_conv.groupby("County_clean_up")
+sold_counts = grp_all.apply(lambda g: (g["Status_norm"] == "sold").sum())
+cut_counts = grp_all.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
 total_counts = sold_counts + cut_counts
 
-# For slider: max total deals in any county
-max_total = int(total_counts.max()) if len(total_counts) > 0 else 0
-
+max_total = int(total_counts.max()) if len(total_counts) else 0
 min_total = st.slider(
     "Show only counties with at least this many total deals (Sold + Cut Loose)",
     min_value=0,
@@ -86,256 +91,191 @@ min_total = st.slider(
 sold_counts_dict = sold_counts.to_dict()
 cut_counts_dict = cut_counts.to_dict()
 
-# -----------------------------
-# 4. APPLY MODE FILTER TO DATA FOR CURRENT VIEW
-# -----------------------------
-
-if mode == "Both":
-    df_use = df.copy()
-else:
-    df_use = df[df["Status"].str.lower() == mode.lower()].copy()
+# Buyer-specific sold counts by county (for highlighting + stats)
+buyer_sold_counts_dict = {}
+if buyer_choice != "All buyers" and mode in ["Sold", "Both"]:
+    df_buyer_sold = df[(df["Status_norm"] == "sold") & (df["Buyer"].astype(str).str.strip() == buyer_choice)]
+    buyer_sold_counts_dict = df_buyer_sold.groupby("County_clean_up").size().to_dict()
 
 # -----------------------------
-# 5. LOAD TN COUNTY GEOJSON FROM WEB (PLOTLY DATASET)
+# Choose rows included in the CURRENT VIEW (controls map counts + address list)
+# Buyer filter affects SOLD rows only.
 # -----------------------------
+if mode == "Sold":
+    df_view = df[df["Status_norm"] == "sold"].copy()
+    if buyer_choice != "All buyers":
+        df_view = df_view[df_view["Buyer"].astype(str).str.strip() == buyer_choice]
+elif mode == "Cut Loose":
+    df_view = df[df["Status_norm"] == "cut loose"].copy()
+else:  # Both
+    df_sold = df[df["Status_norm"] == "sold"].copy()
+    if buyer_choice != "All buyers":
+        df_sold = df_sold[df_sold["Buyer"].astype(str).str.strip() == buyer_choice]
+    df_cut = df[df["Status_norm"] == "cut loose"].copy()
+    df_view = pd.concat([df_sold, df_cut], ignore_index=True)
 
+# County counts + address lists for the current view
+county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 
+county_properties_view = {}
+for _, row in df_view.iterrows():
+    c = row["County_clean_up"]
+    county_properties_view.setdefault(c, []).append(
+        {"Address": row["Address"], "City": row["City"], "SF_URL": row["Salesforce_URL"]}
+    )
+
+# -----------------------------
+# Load TN Counties GeoJSON (Plotly dataset filtered to TN)
+# -----------------------------
 @st.cache_data
 def load_geojson():
-    # Full US counties GeoJSON from Plotly, then filter to Tennessee (STATE == "47")
     url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
     resp = requests.get(url)
     resp.raise_for_status()
     data = resp.json()
-
-    tn_features = [
-        f
-        for f in data["features"]
-        if f.get("properties", {}).get("STATE") == "47"
-    ]
-
-    return {
-        "type": "FeatureCollection",
-        "features": tn_features,
-    }
-
+    tn_features = [f for f in data["features"] if f.get("properties", {}).get("STATE") == "47"]
+    return {"type": "FeatureCollection", "features": tn_features}
 
 tn_geo = load_geojson()
 
 # -----------------------------
-# 6. BUILD COUNTY PROPERTY COUNTS + LISTS (BASED ON FILTERED DATA)
+# Color scales by mode
 # -----------------------------
-
-county_counts = df_use.groupby("County_clean_up").size().to_dict()
-
-county_properties = {}
-for _, row in df_use.iterrows():
-    c = row["County_clean_up"]
-    county_properties.setdefault(c, []).append(
-        {
-            "Address": row["Address"],
-            "City": row["City"],
-            "SF_URL": row["Salesforce_URL"],
-        }
-    )
+def category_color(v: int, mode_: str) -> str:
+    if v == 0:
+        return "#FFFFFF"
+    if mode_ == "Sold":
+        if v == 1: return "#e5f5e0"
+        if 2 <= v <= 5: return "#a1d99b"
+        if 6 <= v <= 10: return "#41ab5d"
+        return "#006d2c"
+    if mode_ == "Cut Loose":
+        if v == 1: return "#fee5d9"
+        if 2 <= v <= 5: return "#fcae91"
+        if 6 <= v <= 10: return "#fb6a4a"
+        return "#cb181d"
+    # Both
+    if v == 1: return "#deebf7"
+    if 2 <= v <= 5: return "#9ecae1"
+    if 6 <= v <= 10: return "#4292c6"
+    return "#084594"
 
 # -----------------------------
-# 7. ENRICH GEOJSON WITH COUNTS + CLOSE RATE + POPUP_HTML
+# Enrich geojson properties (counts, close rate, popup html)
 # -----------------------------
-
 for feature in tn_geo["features"]:
     props = feature["properties"]
-
-    # Plotly counties use NAME = county name (e.g., "Davidson")
     county_name = str(props.get("NAME", "")).strip()
     name_up = county_name.upper()
 
-    # Counts for current view ( Sold / Cut Loose / Both )
-    view_count = county_counts.get(name_up, 0)
+    # View count depends on mode + buyer selection
+    view_count = int(county_counts_view.get(name_up, 0))
 
-    # Sold / Cut Loose / Total from *all* data
     sold = int(sold_counts_dict.get(name_up, 0))
     cut = int(cut_counts_dict.get(name_up, 0))
     total = sold + cut
 
-    # Close rate
-    if total > 0:
-        close_frac = sold / total
-        close_pct = close_frac * 100.0
-        close_str = f"{close_pct:.1f}%"
-    else:
-        close_frac = None
-        close_str = "N/A"
+    close_str = f"{(sold/total)*100:.1f}%" if total > 0 else "N/A"
 
-    props["PROP_COUNT"] = int(view_count)
+    buyer_sold = int(buyer_sold_counts_dict.get(name_up, 0)) if buyer_choice != "All buyers" else 0
+
+    props["NAME"] = county_name
+    props["PROP_COUNT"] = view_count
     props["SOLD_COUNT"] = sold
     props["CUT_COUNT"] = cut
     props["TOTAL_COUNT"] = total
-    props["CLOSE_RATE"] = close_frac
     props["CLOSE_RATE_STR"] = close_str
+    props["BUYER_SOLD_COUNT"] = buyer_sold
+    props["BUYER_NAME"] = buyer_choice
 
-    # Build popup HTML
+    # Popup HTML (no "Properties (Current View)")
     lines = [
-        f"<h4>{county_name} County</h4>",
-        f"<b>Sold:</b> {sold}<br>",
-        f"<b>Cut loose:</b> {cut}<br>",
+        f"<h4 style='margin-bottom:6px;'>{county_name} County</h4>",
+        f"<span style='color:#2ca25f;'>●</span> <b>Sold:</b> {sold}<br>",
+        f"<span style='color:#cb181d;'>●</span> <b>Cut loose:</b> {cut}<br>",
         f"<b>Total deals:</b> {total}<br>",
         f"<b>Close rate:</b> {close_str}<br>",
     ]
 
-    props_list = county_properties.get(name_up, [])
+    if buyer_choice != "All buyers" and mode in ["Sold", "Both"]:
+        lines.append(f"<b>{buyer_choice} (Sold):</b> {buyer_sold}<br>")
+
+    lines.append("<br>")
+
+    props_list = county_properties_view.get(name_up, [])
     if props_list:
-        lines.append(
-            '<div style="max-height: 220px; overflow-y: auto; margin-top: 2px; font-size: 13px;">'
-        )
+        lines.append('<div style="max-height: 220px; overflow-y: auto; margin-top: 2px; font-size: 13px;">')
         lines.append("<ul style='padding-left:18px; margin:0;'>")
         for p in props_list:
             addr = p["Address"]
             city = p["City"]
             url = p["SF_URL"]
             display_text = f"{addr}, {city}" if city else addr
-
             if isinstance(url, str) and url.strip():
-                lines.append(
-                    f'<li style="margin-bottom:2px;"><a href="{url}" target="_blank">{display_text}</a></li>'
-                )
+                lines.append(f'<li style="margin-bottom:2px;"><a href="{url}" target="_blank">{display_text}</a></li>')
             else:
-                lines.append(
-                    f"<li style='margin-bottom:2px;'>{display_text}</li>"
-                )
-        lines.append("</ul>")
-        lines.append("</div>")
+                lines.append(f"<li style='margin-bottom:2px;'>{display_text}</li>")
+        lines.append("</ul></div>")
 
     props["POPUP_HTML"] = "\n".join(lines)
-    props["NAME"] = county_name  # ensure for tooltip
 
 # -----------------------------
-# 8. COLOR SCALES (DIFFERENT BY MODE)
+# Build folium map
 # -----------------------------
-
-
-def category_color(v: int, mode: str) -> str:
-    """
-    0 = white
-    1 = light
-    2–5 = medium
-    6–10 = darker
-    >10 = darkest
-
-    Sold     -> green scheme
-    Cut Loose-> red scheme
-    Both     -> blue scheme
-    """
-    if v == 0:
-        return "#FFFFFF"
-
-    if mode == "Sold":
-        # greens
-        if v == 1:
-            return "#e5f5e0"
-        if 2 <= v <= 5:
-            return "#a1d99b"
-        if 6 <= v <= 10:
-            return "#41ab5d"
-        return "#006d2c"
-    elif mode == "Cut Loose":
-        # reds
-        if v == 1:
-            return "#fee5d9"
-        if 2 <= v <= 5:
-            return "#fcae91"
-        if 6 <= v <= 10:
-            return "#fb6a4a"
-        return "#cb181d"
-    else:
-        # Both -> blue scheme
-        if v == 1:
-            return "#deebf7"
-        if 2 <= v <= 5:
-            return "#9ecae1"
-        if 6 <= v <= 10:
-            return "#4292c6"
-        return "#084594"
-
-
-# -----------------------------
-# 9. BUILD THE FOLIUM MAP
-# -----------------------------
-
 center_lat, center_lon = 35.8, -86.4
-
 m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="cartodbpositron")
 
-
 def style_function(feature):
-    props = feature["properties"]
-    v = props.get("PROP_COUNT", 0)
-    total = props.get("TOTAL_COUNT", 0)
+    p = feature["properties"]
+    total = p.get("TOTAL_COUNT", 0)
+    view_count = p.get("PROP_COUNT", 0)
 
-    # Apply min_total filter: counties below threshold go white
+    # Apply min_total filter
     if total < min_total:
-        return {
-            "fillColor": "#FFFFFF",
-            "color": "black",
-            "weight": 0.5,
-            "fillOpacity": 0.2,
-        }
+        return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
-    return {
-        "fillColor": category_color(v, mode),
-        "color": "black",
-        "weight": 0.5,
-        "fillOpacity": 0.9,
-    }
+    # Buyer highlight: if a buyer is selected, fade counties with 0 buyer_sold
+    if buyer_choice != "All buyers" and mode in ["Sold", "Both"]:
+        if p.get("BUYER_SOLD_COUNT", 0) == 0:
+            return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
+    return {"fillColor": category_color(view_count, mode), "color": "black", "weight": 0.5, "fillOpacity": 0.9}
+
+tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR"]
+tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total deals:", "Close rate:"]
+
+# Include buyer sold count in hover when buyer selected
+if buyer_choice != "All buyers" and mode in ["Sold", "Both"]:
+    tooltip_fields.append("BUYER_SOLD_COUNT")
+    tooltip_aliases.append(f"{buyer_choice} (Sold):")
+
+tooltip = folium.GeoJsonTooltip(
+    fields=tooltip_fields,
+    aliases=tooltip_aliases,
+    localize=True,
+    sticky=False
+)
 
 folium.GeoJson(
     tn_geo,
     name="TN Counties",
     style_function=style_function,
-    tooltip=folium.GeoJsonTooltip(
-        fields=[
-            "NAME",
-            "SOLD_COUNT",
-            "CUT_COUNT",
-            "TOTAL_COUNT",
-            "CLOSE_RATE_STR",
-        ],
-        aliases=[
-            "County:",
-            "Sold:",
-            "Cut loose:",
-            "Total deals:",
-            "Close rate:",
-        ],
-        localize=True,
-        sticky=False,
-    ),
+    tooltip=tooltip,
     popup=folium.GeoJsonPopup(
-    fields=["POPUP_HTML"],
-    labels=False,
-    localize=True,
-    parse_html=True,
-    max_width=430,  # smaller popup
-    style="""
-        font-size: 14px;
-        line-height: 1.25;
-        padding: 4px;
-    """
+        fields=["POPUP_HTML"],
+        labels=False,
+        localize=True,
+        parse_html=True,
+        max_width=430,
+        style="""
+            font-size: 14px;
+            line-height: 1.25;
+            padding: 4px;
+        """
     ),
 ).add_to(m)
 
-# -----------------------------
-# 10. LEGEND (MODE-AWARE)
-# -----------------------------
-
-if mode == "Sold":
-    legend_title = "Sold properties"
-elif mode == "Cut Loose":
-    legend_title = "Cut loose properties"
-else:
-    legend_title = "Total properties"
-
+# Bottom bar legend (low profile)
 legend_html = f"""
 <div style="
     position: fixed;
@@ -354,39 +294,23 @@ legend_html = f"""
     align-items: center;
 ">
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{category_color(1, mode)}; border:1px solid #000;"></div>
-        1
+        <div style="width:14px; height:14px; background:{category_color(1, mode)}; border:1px solid #000;"></div> 1
     </span>
-
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{category_color(2, mode)}; border:1px solid #000;"></div>
-        2–5
+        <div style="width:14px; height:14px; background:{category_color(2, mode)}; border:1px solid #000;"></div> 2–5
     </span>
-
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{category_color(6, mode)}; border:1px solid #000;"></div>
-        6–10
+        <div style="width:14px; height:14px; background:{category_color(6, mode)}; border:1px solid #000;"></div> 6–10
     </span>
-
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{category_color(11, mode)}; border:1px solid #000;"></div>
-        >10
+        <div style="width:14px; height:14px; background:{category_color(11, mode)}; border:1px solid #000;"></div> >10
     </span>
-
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div>
-        0 / filtered out
+        <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div> 0 / hidden
     </span>
 </div>
 """
 m.get_root().html.add_child(folium.Element(legend_html))
 
-
-# -----------------------------
-# 11. DISPLAY MAP IN STREAMLIT
-# -----------------------------
-
 st.title("Closed RHD Properties Map")
-st.write("This map's last data pull was on 12/11/2025")
-
 st_folium(m, width=1600, height=500)
