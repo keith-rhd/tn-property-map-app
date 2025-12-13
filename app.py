@@ -19,12 +19,10 @@ def load_data():
         st.error(f"Missing required columns in sheet: {missing}")
         st.stop()
 
-    # Status
     if "Status" not in df.columns:
         df["Status"] = "Sold"
     df["Status"] = df["Status"].fillna("Sold")
 
-    # Buyer (only needed for Sold rows, but keep safe)
     if "Buyer" not in df.columns:
         df["Buyer"] = ""
     df["Buyer"] = df["Buyer"].fillna("")
@@ -33,22 +31,17 @@ def load_data():
     if "Date" not in df.columns:
         df["Date"] = pd.NA
 
-    # Parse Date -> datetime
-    # (handles Excel-ish strings, ISO, etc.)
+    # Parse Date -> datetime; derive Year
     df["Date_dt"] = pd.to_datetime(df["Date"], errors="coerce")
     df["Year"] = df["Date_dt"].dt.year
 
-    # Normalize county names
     df["County_clean"] = (
         df["County"].astype(str).str.replace(" County", "", case=False).str.strip()
     )
     df["County_clean_up"] = df["County_clean"].str.upper()
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
 
-    # Normalize status for logic
     df["Status_norm"] = df["Status"].astype(str).str.lower().str.strip()
-
-    # Normalize buyer (trim)
     df["Buyer_clean"] = df["Buyer"].astype(str).str.strip()
 
     return df
@@ -57,22 +50,30 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# YEAR FILTER (derive available year range)
+# Precompute totals (used by slider)
 # -----------------------------
-years_available = sorted([int(y) for y in df["Year"].dropna().unique().tolist() if pd.notna(y)])
-if years_available:
-    min_year_avail = years_available[0]
-    max_year_avail = years_available[-1]
-else:
-    # If no dates exist yet, default to a safe range and effectively do nothing
-    min_year_avail = 2000
-    max_year_avail = 2030
+df_conv_all = df[df["Status_norm"].isin(["sold", "cut loose"])].copy()
+grp_all_all = df_conv_all.groupby("County_clean_up")
+sold_counts_all = grp_all_all.apply(lambda g: (g["Status_norm"] == "sold").sum())
+cut_counts_all = grp_all_all.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
+total_counts_all = sold_counts_all + cut_counts_all
+max_total_all = int(total_counts_all.max()) if len(total_counts_all) else 0
 
 # -----------------------------
-# UI CONTROLS (ONE ROW, UPDATED LAYOUT)
-#   View + Hide + Year Range + Buyer + Top Buyers
+# Years available (for multiselect)
 # -----------------------------
-col1, col2, col3, col4, col5 = st.columns([1.1, 1.5, 1.7, 1.7, 0.9], gap="small")
+years_available = sorted(
+    [int(y) for y in df["Year"].dropna().unique().tolist() if pd.notna(y)]
+)
+
+# Default selection: most recent year if available, otherwise none
+default_years = [years_available[-1]] if years_available else []
+
+# -----------------------------
+# UI CONTROLS (ONE ROW)
+#   View + Hide + Years + Buyer + Top Buyers
+# -----------------------------
+col1, col2, col3, col4, col5 = st.columns([1.1, 1.5, 2.1, 1.7, 0.9], gap="small")
 
 with col1:
     mode = st.radio(
@@ -81,15 +82,6 @@ with col1:
         index=0,
         horizontal=True,
     )
-
-# Precompute totals (used by slider + close rate) — will be recomputed *after* time filter too
-# but we still need max_total for slider; we’ll compute using all rows here first.
-df_conv_all = df[df["Status_norm"].isin(["sold", "cut loose"])].copy()
-grp_all_all = df_conv_all.groupby("County_clean_up")
-sold_counts_all = grp_all_all.apply(lambda g: (g["Status_norm"] == "sold").sum())
-cut_counts_all = grp_all_all.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
-total_counts_all = sold_counts_all + cut_counts_all
-max_total_all = int(total_counts_all.max()) if len(total_counts_all) else 0
 
 with col2:
     min_total = st.slider(
@@ -101,43 +93,44 @@ with col2:
     )
 
 with col3:
-    year_range = st.slider(
+    selected_years = st.multiselect(
         "Years",
-        min_value=min_year_avail,
-        max_value=max_year_avail,
-        value=(min_year_avail, max_year_avail),
-        step=1,
+        options=years_available,
+        default=default_years,
     )
 
-# Apply Year filter:
-# - Always applies to Sold (since those are close dates)
-# - Applies to Cut Loose only if it has dates (if Date is blank, it stays included)
-year_min, year_max = year_range
-
+# Apply Year filter rules:
+# - If selected_years is empty: show ALL years (no filter)
+# - Sold rows: filter to selected years (when provided)
+# - Cut loose: filter if it has year; if year missing, keep it
 df_time = df.copy()
 
-sold_mask_time = (df_time["Status_norm"] == "sold") & (df_time["Year"].between(year_min, year_max, inclusive="both"))
-sold_mask_nodate = (df_time["Status_norm"] == "sold") & (df_time["Year"].isna())
+if selected_years:
+    selected_years_set = set(selected_years)
 
-# Sold: keep ONLY those in the selected year range
-df_time_sold = df_time[sold_mask_time].copy()
+    df_time_sold = df_time[
+        (df_time["Status_norm"] == "sold") & (df_time["Year"].isin(selected_years_set))
+    ].copy()
 
-# Cut loose: if it has Year, filter it; if no Year, keep it (so you don't lose cut loose data)
-cut_mask = df_time["Status_norm"] == "cut loose"
-cut_has_year = cut_mask & df_time["Year"].notna()
-cut_no_year = cut_mask & df_time["Year"].isna()
-df_time_cut = pd.concat(
-    [
-        df_time[cut_has_year & df_time["Year"].between(year_min, year_max, inclusive="both")],
-        df_time[cut_no_year],
-    ],
-    ignore_index=True,
-)
+    cut_mask = df_time["Status_norm"] == "cut loose"
+    cut_has_year = cut_mask & df_time["Year"].notna()
+    cut_no_year = cut_mask & df_time["Year"].isna()
 
-# Rebuild a filtered dataset used for stats/controls:
+    df_time_cut = pd.concat(
+        [
+            df_time[cut_has_year & df_time["Year"].isin(selected_years_set)],
+            df_time[cut_no_year],
+        ],
+        ignore_index=True,
+    )
+else:
+    # No year selection means "show all years"
+    df_time_sold = df_time[df_time["Status_norm"] == "sold"].copy()
+    df_time_cut = df_time[df_time["Status_norm"] == "cut loose"].copy()
+
 df_time_filtered = pd.concat([df_time_sold, df_time_cut], ignore_index=True)
 
-# Buyer selector (from SOLD rows in selected time window)
+# Buyer selector from SOLD rows after year filter
 buyers = (
     df_time_sold["Buyer_clean"]
     .astype(str)
@@ -173,7 +166,7 @@ total_counts = sold_counts + cut_counts
 sold_counts_dict = sold_counts.to_dict()
 cut_counts_dict = cut_counts.to_dict()
 
-# Buyer-specific sold counts by county (for highlighting + stats), time-filtered
+# Buyer-specific sold counts by county (time-filtered)
 buyer_sold_counts_dict = {}
 if buyer_active:
     df_buyer_sold = df_time_sold[df_time_sold["Buyer_clean"] == buyer_choice]
@@ -198,7 +191,6 @@ for county, g in buyers_by_county.groupby("County_clean_up"):
 # -----------------------------
 # Choose rows included in the CURRENT VIEW (controls map counts + address list)
 # Buyer filter affects SOLD rows only.
-# All built from time-filtered datasets.
 # -----------------------------
 if mode == "Sold":
     df_view = df_time_sold.copy()
@@ -296,7 +288,6 @@ for feature in tn_geo["features"]:
     props["BUYER_SOLD_COUNT"] = buyer_sold
     props["BUYER_NAME"] = buyer_choice
 
-    # Top buyers block (Sold only) — time-filtered
     top_list = top_buyers_dict.get(name_up, [])[: int(TOP_N)]
 
     top_buyers_html = ""
@@ -308,7 +299,6 @@ for feature in tn_geo["features"]:
             top_buyers_html += f"<li>{b} — {int(c)}</li>"
         top_buyers_html += "</ol></div>"
 
-    # Popup HTML (condensed)
     lines = [
         f"<h4 style='margin-bottom:4px;'>{county_name} County</h4>",
         f"<span style='color:#2ca25f;'>●</span> <b>Sold:</b> {sold} &nbsp; "
