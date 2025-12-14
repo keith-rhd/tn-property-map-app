@@ -27,11 +27,10 @@ def load_data():
         df["Buyer"] = ""
     df["Buyer"] = df["Buyer"].fillna("")
 
-    # Date column (you said it's labeled "Date")
+    # Date column
     if "Date" not in df.columns:
         df["Date"] = pd.NA
 
-    # Parse Date -> datetime; derive Year
     df["Date_dt"] = pd.to_datetime(df["Date"], errors="coerce")
     df["Year"] = df["Date_dt"].dt.year
 
@@ -50,7 +49,7 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# Precompute totals (used by slider)
+# Precompute totals (used by slider max)
 # -----------------------------
 df_conv_all = df[df["Status_norm"].isin(["sold", "cut loose"])].copy()
 grp_all_all = df_conv_all.groupby("County_clean_up")
@@ -65,8 +64,6 @@ max_total_all = int(total_counts_all.max()) if len(total_counts_all) else 0
 years_available = sorted(
     [int(y) for y in df["Year"].dropna().unique().tolist() if pd.notna(y)]
 )
-
-# Default selection: most recent year if available, otherwise none
 default_years = [years_available[-1]] if years_available else []
 
 # -----------------------------
@@ -99,12 +96,8 @@ with col3:
         default=default_years,
     )
 
-# Apply Year filter rules:
-# - If selected_years is empty: show ALL years (no filter)
-# - Sold rows: filter to selected years (when provided)
-# - Cut loose: filter if it has year; if year missing, keep it
+# Apply Year filter rules
 df_time = df.copy()
-
 if selected_years:
     selected_years_set = set(selected_years)
 
@@ -124,7 +117,6 @@ if selected_years:
         ignore_index=True,
     )
 else:
-    # No year selection means "show all years"
     df_time_sold = df_time[df_time["Status_norm"] == "sold"].copy()
     df_time_cut = df_time[df_time["Status_norm"] == "cut loose"].copy()
 
@@ -155,7 +147,26 @@ with col5:
 buyer_active = (buyer_choice != "All buyers") and (mode in ["Sold", "Both"])
 
 # -----------------------------
-# Recompute sold/cut/total counts BY COUNTY using the time-filtered dataset
+# OVERALL STATS (respect year + buyer filters)
+# -----------------------------
+# Sold / Cut loose totals should respect year filter always.
+sold_total_overall = int(len(df_time_sold))
+
+# Cut loose respects year filter (and keeps no-date cut loose if present)
+cut_total_overall = int(len(df_time_cut))
+
+total_deals_overall = sold_total_overall + cut_total_overall
+
+# Buyers total should respect year filter (and optionally buyer filter? usually NOT; we keep overall unique buyers in filtered years)
+total_buyers_overall = int(
+    df_time_sold.loc[df_time_sold["Buyer_clean"] != "", "Buyer_clean"].nunique()
+)
+
+close_rate_overall = (sold_total_overall / total_deals_overall) if total_deals_overall > 0 else None
+close_rate_str = f"{close_rate_overall*100:.1f}%" if close_rate_overall is not None else "N/A"
+
+# -----------------------------
+# Recompute county sold/cut/total using time-filtered dataset
 # -----------------------------
 df_conv = df_time_filtered[df_time_filtered["Status_norm"].isin(["sold", "cut loose"])].copy()
 grp_all = df_conv.groupby("County_clean_up")
@@ -176,13 +187,11 @@ if buyer_active:
 # Top buyers by county (from SOLD data only, time-filtered)
 # -----------------------------
 df_sold_all = df_time_sold[df_time_sold["Buyer_clean"] != ""].copy()
-
 buyers_by_county = (
     df_sold_all.groupby(["County_clean_up", "Buyer_clean"])
     .size()
     .reset_index(name="Count")
 )
-
 top_buyers_dict = {}
 for county, g in buyers_by_county.groupby("County_clean_up"):
     g_sorted = g.sort_values("Count", ascending=False)
@@ -214,7 +223,7 @@ for _, row in df_view.iterrows():
     )
 
 # -----------------------------
-# Load TN Counties GeoJSON (Plotly dataset filtered to TN)
+# Load TN Counties GeoJSON
 # -----------------------------
 @st.cache_data
 def load_geojson():
@@ -276,7 +285,6 @@ for feature in tn_geo["features"]:
     total = sold + cut
 
     close_str = f"{(sold/total)*100:.1f}%" if total > 0 else "N/A"
-
     buyer_sold = int(buyer_sold_counts_dict.get(name_up, 0)) if buyer_active else 0
 
     props["NAME"] = county_name
@@ -289,7 +297,6 @@ for feature in tn_geo["features"]:
     props["BUYER_NAME"] = buyer_choice
 
     top_list = top_buyers_dict.get(name_up, [])[: int(TOP_N)]
-
     top_buyers_html = ""
     if top_list and mode in ["Sold", "Both"]:
         top_buyers_html += "<div style='margin-top:6px; margin-bottom:6px;'>"
@@ -391,6 +398,9 @@ folium.GeoJson(
     ),
 ).add_to(m)
 
+# -----------------------------
+# Bottom bar legend
+# -----------------------------
 legend_html = f"""
 <div style="
     position: fixed;
@@ -427,5 +437,44 @@ legend_html = f"""
 """
 m.get_root().html.add_child(folium.Element(legend_html))
 
+# -----------------------------
+# Overall Stats Box (upper-right)
+# -----------------------------
+years_label = "All years" if not selected_years else ", ".join(str(y) for y in selected_years)
+
+stats_html = f"""
+<div style="
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: 220px;
+    background-color: rgba(255,255,255,0.78);
+    color: #111;
+    z-index: 9999;
+    font-size: 13px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(0,0,0,0.25);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+">
+    <div style="font-weight: 700; margin-bottom: 6px;">Overall stats</div>
+    <div style="font-size: 12px; opacity: 0.9; margin-bottom: 8px;">Years: {years_label}</div>
+
+    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span>Sold</span><span><b>{sold_total_overall}</b></span>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span>Cut loose</span><span><b>{cut_total_overall}</b></span>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span>Total buyers</span><span><b>{total_buyers_overall}</b></span>
+    </div>
+    <div style="display:flex; justify-content:space-between;">
+        <span>Close rate</span><span><b>{close_rate_str}</b></span>
+    </div>
+</div>
+"""
+m.get_root().html.add_child(folium.Element(stats_html))
+
 st.title("Closed RHD Properties Map")
-st_folium(m, width=1650, height=550)
+st_folium(m, width=1600, height=500)
