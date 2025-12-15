@@ -28,7 +28,6 @@ def load_data():
         df["Buyer"] = ""
     df["Buyer"] = df["Buyer"].fillna("")
 
-    # Date column
     if "Date" not in df.columns:
         df["Date"] = pd.NA
 
@@ -50,22 +49,11 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# Precompute totals (legacy; kept harmless)
-# -----------------------------
-df_conv_all = df[df["Status_norm"].isin(["sold", "cut loose"])].copy()
-grp_all_all = df_conv_all.groupby("County_clean_up")
-sold_counts_all = grp_all_all.apply(lambda g: (g["Status_norm"] == "sold").sum())
-cut_counts_all = grp_all_all.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
-total_counts_all = sold_counts_all + cut_counts_all
-max_total_all = int(total_counts_all.max()) if len(total_counts_all) else 0
-
-# -----------------------------
 # Years available
 # -----------------------------
 years_available = sorted(
     [int(y) for y in df["Year"].dropna().unique().tolist() if pd.notna(y)]
 )
-default_years = [years_available[-1]] if years_available else []
 
 # -----------------------------
 # UI CONTROLS (ONE ROW)
@@ -94,7 +82,6 @@ df_time = df.copy()
 if year_choice != "All years":
     y = int(year_choice)
 
-    # Sold: only those in chosen year
     df_time_sold = df_time[
         (df_time["Status_norm"] == "sold") & (df_time["Year"] == y)
     ].copy()
@@ -112,7 +99,6 @@ if year_choice != "All years":
         ignore_index=True,
     )
 else:
-    # All years
     df_time_sold = df_time[df_time["Status_norm"] == "sold"].copy()
     df_time_cut = df_time[df_time["Status_norm"] == "cut loose"].copy()
 
@@ -120,10 +106,11 @@ df_time_filtered = pd.concat([df_time_sold, df_time_cut], ignore_index=True)
 
 # -----------------------------
 # Buyer momentum (Sold only): last 12 months vs prior 12 months
-# Uses df_time_sold (already filtered by year_choice if you pick a single year)
 # -----------------------------
 sold_for_momentum = df_time_sold.copy()
-sold_for_momentum["Buyer_clean"] = sold_for_momentum["Buyer_clean"].fillna("").astype(str).str.strip()
+sold_for_momentum["Buyer_clean"] = (
+    sold_for_momentum["Buyer_clean"].fillna("").astype(str).str.strip()
+)
 
 anchor = sold_for_momentum["Date_dt"].max()
 if pd.isna(anchor):
@@ -133,10 +120,12 @@ last12_start = anchor - pd.Timedelta(days=365)
 prev12_start = anchor - pd.Timedelta(days=730)
 
 df_last12 = sold_for_momentum[
-    (sold_for_momentum["Date_dt"] > last12_start) & (sold_for_momentum["Date_dt"] <= anchor)
+    (sold_for_momentum["Date_dt"] > last12_start)
+    & (sold_for_momentum["Date_dt"] <= anchor)
 ]
 df_prev12 = sold_for_momentum[
-    (sold_for_momentum["Date_dt"] > prev12_start) & (sold_for_momentum["Date_dt"] <= last12_start)
+    (sold_for_momentum["Date_dt"] > prev12_start)
+    & (sold_for_momentum["Date_dt"] <= last12_start)
 ]
 
 last12_counts = df_last12[df_last12["Buyer_clean"] != ""].groupby("Buyer_clean").size()
@@ -153,9 +142,7 @@ buyer_momentum["delta"] = buyer_momentum["last12"] - buyer_momentum["prev12"]
 # Buyer selector options (with momentum labels)
 # -----------------------------
 buyers_plain = (
-    df_time_sold["Buyer_clean"]
-    .astype(str)
-    .str.strip()
+    df_time_sold["Buyer_clean"].astype(str).str.strip()
 )
 buyers_plain = sorted([b for b in buyers_plain.unique().tolist() if b])
 
@@ -169,7 +156,9 @@ with col4:
             for b, row in bm.iterrows():
                 d = int(row["delta"])
                 arrow = "▲" if d > 0 else ("▼" if d < 0 else "→")
-                labels.append(f"{b}  {arrow} {d:+d}  ({int(row['last12'])} vs {int(row['prev12'])})")
+                labels.append(
+                    f"{b}  {arrow} {d:+d}  ({int(row['last12'])} vs {int(row['prev12'])})"
+                )
                 label_to_buyer[labels[-1]] = b
         else:
             for b in buyers_plain:
@@ -202,19 +191,55 @@ close_rate_overall = (sold_total_overall / total_deals_overall) if total_deals_o
 close_rate_str = f"{close_rate_overall*100:.1f}%" if close_rate_overall is not None else "N/A"
 
 # -----------------------------
+# Sidebar: Overall stats at the top
+# -----------------------------
+st.sidebar.markdown("## Overall stats")
+st.sidebar.caption(f"Year: **{year_choice}**")
+
+st.sidebar.markdown(
+    f"""
+<div style="
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 10px;
+    padding: 10px 12px;
+">
+    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span>Sold</span><span><b>{sold_total_overall}</b></span>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span>Cut loose</span><span><b>{cut_total_overall}</b></span>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span>Total deals</span><span><b>{total_deals_overall}</b></span>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span>Total buyers</span><span><b>{total_buyers_overall}</b></span>
+    </div>
+    <div style="display:flex; justify-content:space-between;">
+        <span>Close rate</span><span><b>{close_rate_str}</b></span>
+    </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
+
+st.sidebar.markdown("---")
+
+# -----------------------------
 # Recompute county sold/cut/total using time-filtered dataset
 # -----------------------------
 df_conv = df_time_filtered[df_time_filtered["Status_norm"].isin(["sold", "cut loose"])].copy()
 grp_all = df_conv.groupby("County_clean_up")
 sold_counts = grp_all.apply(lambda g: (g["Status_norm"] == "sold").sum())
 cut_counts = grp_all.apply(lambda g: (g["Status_norm"] == "cut loose").sum())
-total_counts = sold_counts + cut_counts
 
 sold_counts_dict = sold_counts.to_dict()
 cut_counts_dict = cut_counts.to_dict()
 
 # -----------------------------
 # County health score (0–100): close_rate × log1p(total)
+#   (Still computed for rankings, but removed from hover/popup.)
 # -----------------------------
 health_raw = {}
 all_counties = set(list(sold_counts_dict.keys()) + list(cut_counts_dict.keys()))
@@ -241,19 +266,14 @@ if buyer_active:
     buyer_sold_counts_dict = df_buyer_sold.groupby("County_clean_up").size().to_dict()
 
 # -----------------------------
-# County ranking panel (sidebar)
+# County ranking panel (sidebar) — ONLY Health score + Buyer count
 # -----------------------------
 county_rows = []
-all_counties = sorted(set(list(sold_counts_dict.keys()) + list(cut_counts_dict.keys())))
+all_counties_sorted = sorted(set(list(sold_counts_dict.keys()) + list(cut_counts_dict.keys())))
 
-for c_up in all_counties:
-    sold = int(sold_counts_dict.get(c_up, 0))
-    cut = int(cut_counts_dict.get(c_up, 0))
-    total = sold + cut
-    close_rate = (sold / total) if total > 0 else None
+for c_up in all_counties_sorted:
     hs = float(health_score.get(c_up, 0.0))
 
-    # buyer count in county (sold only, time-filtered)
     buyer_count = int(
         df_time_sold.loc[df_time_sold["County_clean_up"] == c_up, "Buyer_clean"]
         .replace("", pd.NA)
@@ -263,10 +283,6 @@ for c_up in all_counties:
 
     county_rows.append({
         "County": c_up.title(),
-        "Sold": sold,
-        "Cut loose": cut,
-        "Total deals": total,
-        "Close rate": round(close_rate * 100, 1) if close_rate is not None else None,
         "Health score": hs,
         "Buyer count": buyer_count,
     })
@@ -276,17 +292,12 @@ rank_df = pd.DataFrame(county_rows)
 st.sidebar.markdown("## County rankings")
 rank_metric = st.sidebar.selectbox(
     "Rank by",
-    ["Total deals", "Sold", "Cut loose", "Close rate", "Health score", "Buyer count"],
+    ["Health score", "Buyer count"],
     index=0
 )
 top_n = st.sidebar.slider("Top N", 5, 50, 15, 5)
 
-# Sort (Close rate + Health score should be descending; handle None)
-rank_df_sorted = rank_df.copy()
-if rank_metric in ["Close rate"]:
-    rank_df_sorted[rank_metric] = rank_df_sorted[rank_metric].fillna(-1)
-
-rank_df_sorted = rank_df_sorted.sort_values(rank_metric, ascending=False).head(top_n)
+rank_df_sorted = rank_df.sort_values(rank_metric, ascending=False).head(top_n)
 
 st.sidebar.dataframe(
     rank_df_sorted,
@@ -382,7 +393,8 @@ def category_color(v: int, mode_: str, buyer_active_: bool = False) -> str:
     return "#084594"
 
 # -----------------------------
-# Enrich geojson properties (counts, close rate, health score, popup html)
+# Enrich geojson properties (counts, close rate, popup html)
+#   Health score removed from hover + popup.
 # -----------------------------
 for feature in tn_geo["features"]:
     props = feature["properties"]
@@ -398,9 +410,6 @@ for feature in tn_geo["features"]:
     close_str = f"{(sold/total)*100:.1f}%" if total > 0 else "N/A"
     buyer_sold = int(buyer_sold_counts_dict.get(name_up, 0)) if buyer_active else 0
 
-    hs = float(health_score.get(name_up, 0.0))
-    hs_str = f"{hs:.1f}/100"
-
     props["NAME"] = county_name
     props["PROP_COUNT"] = view_count
     props["SOLD_COUNT"] = sold
@@ -409,7 +418,6 @@ for feature in tn_geo["features"]:
     props["CLOSE_RATE_STR"] = close_str
     props["BUYER_SOLD_COUNT"] = buyer_sold
     props["BUYER_NAME"] = buyer_choice
-    props["HEALTH_SCORE_STR"] = hs_str
 
     top_list = top_buyers_dict.get(name_up, [])[: int(TOP_N)]
     top_buyers_html = ""
@@ -426,7 +434,6 @@ for feature in tn_geo["features"]:
         f"<span style='color:#2ca25f;'>●</span> <b>Sold:</b> {sold} &nbsp; "
         f"<span style='color:#cb181d;'>●</span> <b>Cut loose:</b> {cut}<br>",
         f"<b>Total:</b> {total} &nbsp; <b>Close rate:</b> {close_str}<br>",
-        f"<b>Health score:</b> {hs_str}<br>",
     ]
 
     if buyer_active:
@@ -477,8 +484,9 @@ def style_function(feature):
         "fillOpacity": 0.9,
     }
 
-tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR", "HEALTH_SCORE_STR"]
-tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total:", "Close rate:", "Health score:"]
+# Hover tooltip: health score removed
+tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR"]
+tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total:", "Close rate:"]
 
 if buyer_active:
     tooltip_fields.append("BUYER_SOLD_COUNT")
@@ -511,7 +519,7 @@ folium.GeoJson(
 ).add_to(m)
 
 # -----------------------------
-# Bottom bar legend
+# Bottom bar legend (remove word "hidden" for 0)
 # -----------------------------
 legend_html = f"""
 <div style="
@@ -543,53 +551,11 @@ legend_html = f"""
         <div style="width:14px; height:14px; background:{category_color(11, mode, buyer_active)}; border:1px solid #000;"></div> >10
     </span>
     <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div> 0 / hidden
+        <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div> 0
     </span>
 </div>
 """
 m.get_root().html.add_child(folium.Element(legend_html))
-
-# -----------------------------
-# Overall Stats Box (upper-right)
-# -----------------------------
-years_label = str(year_choice)
-
-stats_html = f"""
-<div style="
-    position: fixed;
-    top: 12px;
-    right: 12px;
-    width: 240px;
-    background-color: rgba(255,255,255,0.78);
-    color: #111;
-    z-index: 9999;
-    font-size: 13px;
-    padding: 10px 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(0,0,0,0.25);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-">
-    <div style="font-weight: 700; margin-bottom: 6px;">Overall stats</div>
-    <div style="font-size: 12px; opacity: 0.9; margin-bottom: 8px;">Years: {years_label}</div>
-
-    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-        <span>Sold</span><span><b>{sold_total_overall}</b></span>
-    </div>
-    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-        <span>Cut loose</span><span><b>{cut_total_overall}</b></span>
-    </div>
-    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-        <span>Total deals</span><span><b>{total_deals_overall}</b></span>
-    </div>
-    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-        <span>Total buyers</span><span><b>{total_buyers_overall}</b></span>
-    </div>
-    <div style="display:flex; justify-content:space-between;">
-        <span>Close rate</span><span><b>{close_rate_str}</b></span>
-    </div>
-</div>
-"""
-m.get_root().html.add_child(folium.Element(stats_html))
 
 st.title("Closed RHD Properties Map")
 st_folium(m, width=1800, height=500)
