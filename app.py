@@ -477,4 +477,4 @@ stats_html = f"""
 m.get_root().html.add_child(folium.Element(stats_html))
 
 st.title("Closed RHD Properties Map")
-st_folium(m, width=1600, height=500)
+st_folium(m, width=1700, height=500)
