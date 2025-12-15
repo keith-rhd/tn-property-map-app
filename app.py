@@ -5,7 +5,12 @@ from streamlit_folium import st_folium
 import folium
 import math
 
-st.set_page_config(page_title="TN Property Map", layout="wide")
+st.set_page_config(
+    page_title="TN Property Map",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTw_-UeODGJQFKDMVXM59CG45SrbADPQpyWcALENIDqT8SUhHFm1URYNP3aB6vudjzpM1mBFRio3rWi/pub?output=csv"
 
