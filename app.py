@@ -70,7 +70,7 @@ default_years = [years_available[-1]] if years_available else []
 # UI CONTROLS (ONE ROW)
 #   View + Hide + Years + Buyer + Top Buyers
 # -----------------------------
-col1, col2, col3, col4, col5 = st.columns([1.1, 1.5, 2.1, 1.7, 0.9], gap="small")
+col1, col3, col4, col5 = st.columns([1.1, 1.6, 1.7, 0.9], gap="small")
 
 with col1:
     mode = st.radio(
@@ -80,43 +80,36 @@ with col1:
         horizontal=True,
     )
 
-with col2:
-    min_total = st.slider(
-        "Hide counties with < N total deals",
-        min_value=0,
-        max_value=max_total_all if max_total_all > 0 else 0,
-        value=0,
-        step=1,
-    )
-
 with col3:
-    selected_years = st.multiselect(
-        "Years",
-        options=years_available,
-        default=default_years,
+    year_choice = st.selectbox(
+        "Year",
+        ["All years"] + years_available,
+        index=0,
     )
 
-# Apply Year filter rules
+# Apply Year filter rules (single year or all years)
 df_time = df.copy()
-if selected_years:
-    selected_years_set = set(selected_years)
 
-    df_time_sold = df_time[
-        (df_time["Status_norm"] == "sold") & (df_time["Year"].isin(selected_years_set))
-    ].copy()
+if year_choice != "All years":
+    y = int(year_choice)
 
+    # Sold: only those in chosen year
+    df_time_sold = df_time[(df_time["Status_norm"] == "sold") & (df_time["Year"] == y)].copy()
+
+    # Cut loose: filter if it has year; if year missing, keep it
     cut_mask = df_time["Status_norm"] == "cut loose"
     cut_has_year = cut_mask & df_time["Year"].notna()
     cut_no_year = cut_mask & df_time["Year"].isna()
 
     df_time_cut = pd.concat(
         [
-            df_time[cut_has_year & df_time["Year"].isin(selected_years_set)],
+            df_time[cut_has_year & (df_time["Year"] == y)],
             df_time[cut_no_year],
         ],
         ignore_index=True,
     )
 else:
+    # All years
     df_time_sold = df_time[df_time["Status_norm"] == "sold"].copy()
     df_time_cut = df_time[df_time["Status_norm"] == "cut loose"].copy()
 
@@ -350,9 +343,6 @@ def style_function(feature):
     p = feature["properties"]
     total = p.get("TOTAL_COUNT", 0)
 
-    if total < min_total:
-        return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
-
     if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
         return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
@@ -440,7 +430,7 @@ m.get_root().html.add_child(folium.Element(legend_html))
 # -----------------------------
 # Overall Stats Box (upper-right) — UPDATED (adds Total deals)
 # -----------------------------
-years_label = "All years" if not selected_years else ", ".join(str(y) for y in selected_years)
+years_label = str(year_choice)
 
 stats_html = f"""
 <div style="
