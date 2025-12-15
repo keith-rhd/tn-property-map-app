@@ -438,7 +438,7 @@ legend_html = f"""
 m.get_root().html.add_child(folium.Element(legend_html))
 
 # -----------------------------
-# Overall Stats Box (upper-right)
+# Overall Stats Box (upper-right) — UPDATED (adds Total deals)
 # -----------------------------
 years_label = "All years" if not selected_years else ", ".join(str(y) for y in selected_years)
 
@@ -467,6 +467,9 @@ stats_html = f"""
         <span>Cut loose</span><span><b>{cut_total_overall}</b></span>
     </div>
     <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <span>Total deals</span><span><b>{total_deals_overall}</b></span>
+    </div>
+    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
         <span>Total buyers</span><span><b>{total_buyers_overall}</b></span>
     </div>
     <div style="display:flex; justify-content:space-between;">
@@ -475,6 +478,7 @@ stats_html = f"""
 </div>
 """
 m.get_root().html.add_child(folium.Element(stats_html))
+
 
 st.title("Closed RHD Properties Map")
 st_folium(m, width=1800, height=500)
