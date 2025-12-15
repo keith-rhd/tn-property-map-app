@@ -3,6 +3,7 @@ import requests
 import streamlit as st
 from streamlit_folium import st_folium
 import folium
+import math
 
 st.set_page_config(page_title="TN Property Map", layout="wide")
 
@@ -49,7 +50,7 @@ def load_data():
 df = load_data()
 
 # -----------------------------
-# Precompute totals (used by slider max)
+# Precompute totals (legacy; kept harmless)
 # -----------------------------
 df_conv_all = df[df["Status_norm"].isin(["sold", "cut loose"])].copy()
 grp_all_all = df_conv_all.groupby("County_clean_up")
@@ -59,7 +60,7 @@ total_counts_all = sold_counts_all + cut_counts_all
 max_total_all = int(total_counts_all.max()) if len(total_counts_all) else 0
 
 # -----------------------------
-# Years available (for multiselect)
+# Years available
 # -----------------------------
 years_available = sorted(
     [int(y) for y in df["Year"].dropna().unique().tolist() if pd.notna(y)]
@@ -68,7 +69,7 @@ default_years = [years_available[-1]] if years_available else []
 
 # -----------------------------
 # UI CONTROLS (ONE ROW)
-#   View + Hide + Years + Buyer + Top Buyers
+#   View + Year + Buyer + Top Buyers
 # -----------------------------
 col1, col3, col4, col5 = st.columns([1.1, 1.6, 1.7, 0.9], gap="small")
 
@@ -94,7 +95,9 @@ if year_choice != "All years":
     y = int(year_choice)
 
     # Sold: only those in chosen year
-    df_time_sold = df_time[(df_time["Status_norm"] == "sold") & (df_time["Year"] == y)].copy()
+    df_time_sold = df_time[
+        (df_time["Status_norm"] == "sold") & (df_time["Year"] == y)
+    ].copy()
 
     # Cut loose: filter if it has year; if year missing, keep it
     cut_mask = df_time["Status_norm"] == "cut loose"
@@ -115,21 +118,66 @@ else:
 
 df_time_filtered = pd.concat([df_time_sold, df_time_cut], ignore_index=True)
 
-# Buyer selector from SOLD rows after year filter
-buyers = (
+# -----------------------------
+# Buyer momentum (Sold only): last 12 months vs prior 12 months
+# Uses df_time_sold (already filtered by year_choice if you pick a single year)
+# -----------------------------
+sold_for_momentum = df_time_sold.copy()
+sold_for_momentum["Buyer_clean"] = sold_for_momentum["Buyer_clean"].fillna("").astype(str).str.strip()
+
+anchor = sold_for_momentum["Date_dt"].max()
+if pd.isna(anchor):
+    anchor = pd.Timestamp.today()
+
+last12_start = anchor - pd.Timedelta(days=365)
+prev12_start = anchor - pd.Timedelta(days=730)
+
+df_last12 = sold_for_momentum[
+    (sold_for_momentum["Date_dt"] > last12_start) & (sold_for_momentum["Date_dt"] <= anchor)
+]
+df_prev12 = sold_for_momentum[
+    (sold_for_momentum["Date_dt"] > prev12_start) & (sold_for_momentum["Date_dt"] <= last12_start)
+]
+
+last12_counts = df_last12[df_last12["Buyer_clean"] != ""].groupby("Buyer_clean").size()
+prev12_counts = df_prev12[df_prev12["Buyer_clean"] != ""].groupby("Buyer_clean").size()
+
+buyer_momentum = (
+    pd.DataFrame({"last12": last12_counts, "prev12": prev12_counts})
+    .fillna(0)
+    .astype(int)
+)
+buyer_momentum["delta"] = buyer_momentum["last12"] - buyer_momentum["prev12"]
+
+# -----------------------------
+# Buyer selector options (with momentum labels)
+# -----------------------------
+buyers_plain = (
     df_time_sold["Buyer_clean"]
     .astype(str)
     .str.strip()
 )
-buyers = sorted([b for b in buyers.unique().tolist() if b])
+buyers_plain = sorted([b for b in buyers_plain.unique().tolist() if b])
 
 with col4:
     if mode in ["Sold", "Both"]:
-        buyer_choice = st.selectbox(
-            "Buyer",
-            ["All buyers"] + buyers,
-            index=0,
-        )
+        labels = ["All buyers"]
+        label_to_buyer = {"All buyers": "All buyers"}
+
+        if not buyer_momentum.empty:
+            bm = buyer_momentum.sort_values(["last12", "delta"], ascending=False)
+            for b, row in bm.iterrows():
+                d = int(row["delta"])
+                arrow = "▲" if d > 0 else ("▼" if d < 0 else "→")
+                labels.append(f"{b}  {arrow} {d:+d}  ({int(row['last12'])} vs {int(row['prev12'])})")
+                label_to_buyer[labels[-1]] = b
+        else:
+            for b in buyers_plain:
+                labels.append(b)
+                label_to_buyer[b] = b
+
+        chosen_label = st.selectbox("Buyer", labels, index=0)
+        buyer_choice = label_to_buyer[chosen_label]
     else:
         buyer_choice = "All buyers"
         st.selectbox("Buyer", ["All buyers"], index=0, disabled=True)
@@ -140,17 +188,12 @@ with col5:
 buyer_active = (buyer_choice != "All buyers") and (mode in ["Sold", "Both"])
 
 # -----------------------------
-# OVERALL STATS (respect year + buyer filters)
+# OVERALL STATS (respect year filter)
 # -----------------------------
-# Sold / Cut loose totals should respect year filter always.
 sold_total_overall = int(len(df_time_sold))
-
-# Cut loose respects year filter (and keeps no-date cut loose if present)
 cut_total_overall = int(len(df_time_cut))
-
 total_deals_overall = sold_total_overall + cut_total_overall
 
-# Buyers total should respect year filter (and optionally buyer filter? usually NOT; we keep overall unique buyers in filtered years)
 total_buyers_overall = int(
     df_time_sold.loc[df_time_sold["Buyer_clean"] != "", "Buyer_clean"].nunique()
 )
@@ -169,6 +212,27 @@ total_counts = sold_counts + cut_counts
 
 sold_counts_dict = sold_counts.to_dict()
 cut_counts_dict = cut_counts.to_dict()
+
+# -----------------------------
+# County health score (0–100): close_rate × log1p(total)
+# -----------------------------
+health_raw = {}
+all_counties = set(list(sold_counts_dict.keys()) + list(cut_counts_dict.keys()))
+for county_up in all_counties:
+    s = int(sold_counts_dict.get(county_up, 0))
+    c = int(cut_counts_dict.get(county_up, 0))
+    t = s + c
+    if t == 0:
+        health_raw[county_up] = 0.0
+    else:
+        close_rate = s / t
+        health_raw[county_up] = close_rate * math.log1p(t)
+
+max_raw = max(health_raw.values()) if health_raw else 0.0
+health_score = {}
+for county_up, raw in health_raw.items():
+    score = (raw / max_raw * 100.0) if max_raw > 0 else 0.0
+    health_score[county_up] = round(score, 1)
 
 # Buyer-specific sold counts by county (time-filtered)
 buyer_sold_counts_dict = {}
@@ -264,7 +328,7 @@ def category_color(v: int, mode_: str, buyer_active_: bool = False) -> str:
     return "#084594"
 
 # -----------------------------
-# Enrich geojson properties (counts, close rate, popup html)
+# Enrich geojson properties (counts, close rate, health score, popup html)
 # -----------------------------
 for feature in tn_geo["features"]:
     props = feature["properties"]
@@ -280,6 +344,9 @@ for feature in tn_geo["features"]:
     close_str = f"{(sold/total)*100:.1f}%" if total > 0 else "N/A"
     buyer_sold = int(buyer_sold_counts_dict.get(name_up, 0)) if buyer_active else 0
 
+    hs = float(health_score.get(name_up, 0.0))
+    hs_str = f"{hs:.1f}/100"
+
     props["NAME"] = county_name
     props["PROP_COUNT"] = view_count
     props["SOLD_COUNT"] = sold
@@ -288,6 +355,7 @@ for feature in tn_geo["features"]:
     props["CLOSE_RATE_STR"] = close_str
     props["BUYER_SOLD_COUNT"] = buyer_sold
     props["BUYER_NAME"] = buyer_choice
+    props["HEALTH_SCORE_STR"] = hs_str
 
     top_list = top_buyers_dict.get(name_up, [])[: int(TOP_N)]
     top_buyers_html = ""
@@ -304,6 +372,7 @@ for feature in tn_geo["features"]:
         f"<span style='color:#2ca25f;'>●</span> <b>Sold:</b> {sold} &nbsp; "
         f"<span style='color:#cb181d;'>●</span> <b>Cut loose:</b> {cut}<br>",
         f"<b>Total:</b> {total} &nbsp; <b>Close rate:</b> {close_str}<br>",
+        f"<b>Health score:</b> {hs_str}<br>",
     ]
 
     if buyer_active:
@@ -341,7 +410,6 @@ m = folium.Map(location=[center_lat, center_lon], zoom_start=7, tiles="cartodbpo
 
 def style_function(feature):
     p = feature["properties"]
-    total = p.get("TOTAL_COUNT", 0)
 
     if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
         return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
@@ -355,8 +423,8 @@ def style_function(feature):
         "fillOpacity": 0.9,
     }
 
-tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR"]
-tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total:", "Close rate:"]
+tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR", "HEALTH_SCORE_STR"]
+tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total:", "Close rate:", "Health score:"]
 
 if buyer_active:
     tooltip_fields.append("BUYER_SOLD_COUNT")
@@ -428,7 +496,7 @@ legend_html = f"""
 m.get_root().html.add_child(folium.Element(legend_html))
 
 # -----------------------------
-# Overall Stats Box (upper-right) — UPDATED (adds Total deals)
+# Overall Stats Box (upper-right)
 # -----------------------------
 years_label = str(year_choice)
 
@@ -437,7 +505,7 @@ stats_html = f"""
     position: fixed;
     top: 12px;
     right: 12px;
-    width: 220px;
+    width: 240px;
     background-color: rgba(255,255,255,0.78);
     color: #111;
     z-index: 9999;
@@ -468,7 +536,6 @@ stats_html = f"""
 </div>
 """
 m.get_root().html.add_child(folium.Element(stats_html))
-
 
 st.title("Closed RHD Properties Map")
 st_folium(m, width=1800, height=500)
