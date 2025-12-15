@@ -241,6 +241,60 @@ if buyer_active:
     buyer_sold_counts_dict = df_buyer_sold.groupby("County_clean_up").size().to_dict()
 
 # -----------------------------
+# County ranking panel (sidebar)
+# -----------------------------
+county_rows = []
+all_counties = sorted(set(list(sold_counts_dict.keys()) + list(cut_counts_dict.keys())))
+
+for c_up in all_counties:
+    sold = int(sold_counts_dict.get(c_up, 0))
+    cut = int(cut_counts_dict.get(c_up, 0))
+    total = sold + cut
+    close_rate = (sold / total) if total > 0 else None
+    hs = float(health_score.get(c_up, 0.0))
+
+    # buyer count in county (sold only, time-filtered)
+    buyer_count = int(
+        df_time_sold.loc[df_time_sold["County_clean_up"] == c_up, "Buyer_clean"]
+        .replace("", pd.NA)
+        .dropna()
+        .nunique()
+    )
+
+    county_rows.append({
+        "County": c_up.title(),
+        "Sold": sold,
+        "Cut loose": cut,
+        "Total deals": total,
+        "Close rate": round(close_rate * 100, 1) if close_rate is not None else None,
+        "Health score": hs,
+        "Buyer count": buyer_count,
+    })
+
+rank_df = pd.DataFrame(county_rows)
+
+st.sidebar.markdown("## County rankings")
+rank_metric = st.sidebar.selectbox(
+    "Rank by",
+    ["Total deals", "Sold", "Cut loose", "Close rate", "Health score", "Buyer count"],
+    index=0
+)
+top_n = st.sidebar.slider("Top N", 5, 50, 15, 5)
+
+# Sort (Close rate + Health score should be descending; handle None)
+rank_df_sorted = rank_df.copy()
+if rank_metric in ["Close rate"]:
+    rank_df_sorted[rank_metric] = rank_df_sorted[rank_metric].fillna(-1)
+
+rank_df_sorted = rank_df_sorted.sort_values(rank_metric, ascending=False).head(top_n)
+
+st.sidebar.dataframe(
+    rank_df_sorted,
+    use_container_width=True,
+    hide_index=True
+)
+
+# -----------------------------
 # Top buyers by county (from SOLD data only, time-filtered)
 # -----------------------------
 df_sold_all = df_time_sold[df_time_sold["Buyer_clean"] != ""].copy()
