@@ -87,7 +87,13 @@ all_counties = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys())))
 health_score = compute_health_score(all_counties, sold_counts, cut_counts)
 
 # -----------------------------
-# Rankings DF (only Health score + Buyer count)
+# County trends (Sold only): last 12 months vs prior 12 months
+# -----------------------------
+county_trends_df = compute_county_trends(fd.df_time_sold)
+county_delta = county_trends_df["delta"].to_dict() if not county_trends_df.empty else {}
+
+# -----------------------------
+# Rankings DF (Health score + Buyer count + Trend)
 # -----------------------------
 county_rows = []
 for c_up in all_counties:
@@ -97,10 +103,24 @@ for c_up in all_counties:
         .dropna()
         .nunique()
     )
-    county_rows.append({"County": c_up.title(), "Health score": float(health_score.get(c_up, 0.0)), "Buyer count": buyer_count})
+
+    delta = int(county_delta.get(c_up, 0))
+    county_rows.append(
+        {
+            "County": c_up.title(),
+            "Health score": float(health_score.get(c_up, 0.0)),
+            "Buyer count": buyer_count,
+            "Trend": format_trend(delta),
+            "_trend_delta": delta,  # hidden numeric helper for sorting (optional)
+        }
+    )
 
 rank_df = pd.DataFrame(county_rows)
-render_rankings(rank_df)
+
+# If you don't want the helper column visible, drop it before display.
+rank_df_display = rank_df.drop(columns=["_trend_delta"], errors="ignore")
+render_rankings(rank_df_display)
+
 
 # -----------------------------
 # Buyer-specific sold counts by county
