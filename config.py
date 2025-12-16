@@ -2,19 +2,31 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+# Base directory of the repo (reliable in Streamlit Cloud)
 BASE_DIR = Path(__file__).resolve().parent
-GEOJSON_LOCAL_PATH = BASE_DIR / "tn_counties.geojson"
 
+# -----------------------------
+# Data / files
+# -----------------------------
 SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTw_-UeODGJQFKDMVXM59CG45SrbADPQpyWcALENIDqT8SUhHFm1URYNP3aB6vudjzpM1mBFRio3rWi/pub?output=csv"
 
 REQUIRED_COLS = {"Address", "City", "County", "Salesforce_URL"}
 
+# GeoJSON file (local, in repo root)
+GEOJSON_LOCAL_PATH = BASE_DIR / "tn_counties.geojson"
+
+# -----------------------------
+# Streamlit page config
+# -----------------------------
 DEFAULT_PAGE = dict(
     page_title="TN Property Map",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
+# -----------------------------
+# Map defaults
+# -----------------------------
 MAP_DEFAULTS = dict(
     center_lat=35.8,
     center_lon=-86.4,
@@ -22,8 +34,9 @@ MAP_DEFAULTS = dict(
     tiles="cartodbpositron",
 )
 
-GEOJSON_LOCAL_PATH = "tn_counties.geojson"
-
+# -----------------------------
+# Column names (single source of truth)
+# -----------------------------
 @dataclass(frozen=True)
 class Cols:
     address: str = "Address"
@@ -35,3 +48,4 @@ class Cols:
     date: str = "Date"
 
 C = Cols()
+
