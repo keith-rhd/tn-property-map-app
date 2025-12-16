@@ -118,8 +118,7 @@ for c_up in all_counties:
 rank_df = pd.DataFrame(county_rows)
 
 # If you don't want the helper column visible, drop it before display.
-rank_df_display = rank_df.drop(columns=["_trend_delta"], errors="ignore")
-render_rankings(rank_df_display)
+render_rankings(rank_df)
 
 
 # -----------------------------
