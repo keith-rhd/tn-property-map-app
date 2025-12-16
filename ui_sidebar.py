@@ -2,7 +2,6 @@
 import pandas as pd
 import streamlit as st
 
-
 def render_overall_stats(*, year_choice, sold_total, cut_total, total_deals, total_buyers, close_rate_str):
     st.sidebar.markdown("## Overall stats")
     st.sidebar.caption(f"Year: **{year_choice}**")
@@ -34,52 +33,16 @@ def render_overall_stats(*, year_choice, sold_total, cut_total, total_deals, tot
 """,
         unsafe_allow_html=True,
     )
-
     st.sidebar.markdown("---")
 
-
 def render_rankings(rank_df: pd.DataFrame):
-    """
-    Expects rank_df to include:
-      - County
-      - Health score
-      - Buyer count
-      - Trend (arrow string)
-    Optional helper column:
-      - _trend_delta (int), used to sort Trend correctly
-    """
     st.sidebar.markdown("## County rankings")
-
-    rank_metric = st.sidebar.selectbox(
-        "Rank by",
-        ["Health score", "Buyer count", "Trend"],
-        index=0,
-    )
+    rank_metric = st.sidebar.selectbox("Rank by", ["Health score", "Buyer count", "Trend"], index=0)
     top_n = st.sidebar.slider("Top N", 5, 50, 15, 5)
 
-    df = rank_df.copy()
-
-    if df.empty:
-        st.sidebar.info("No ranking data available.")
-        return rank_metric, top_n
-
-    # Sort correctly
-    if rank_metric == "Trend":
-        if "_trend_delta" in df.columns:
-            df = df.sort_values("_trend_delta", ascending=False)
-        else:
-            # Fallback if helper column is missing
-            df = df.sort_values("Trend", ascending=False)
-    else:
-        df = df.sort_values(rank_metric, ascending=False)
-
-    # Hide helper column from display
-    df = df.drop(columns=["_trend_delta"], errors="ignore")
-
     st.sidebar.dataframe(
-        df.head(top_n),
+        rank_df.sort_values(rank_metric, ascending=False).head(top_n),
         use_container_width=True,
         hide_index=True,
     )
-
     return rank_metric, top_n
