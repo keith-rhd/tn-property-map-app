@@ -37,7 +37,7 @@ def render_overall_stats(*, year_choice, sold_total, cut_total, total_deals, tot
 
 def render_rankings(rank_df: pd.DataFrame):
     st.sidebar.markdown("## County rankings")
-    rank_metric = st.sidebar.selectbox("Rank by", ["Health score", "Buyer count"], index=0)
+    rank_metric = st.sidebar.selectbox("Rank by", ["Health score", "Buyer count", "Trend"], index=0)
     top_n = st.sidebar.slider("Top N", 5, 50, 15, 5)
 
     st.sidebar.dataframe(
