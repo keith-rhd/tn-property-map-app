@@ -6,6 +6,7 @@ from config import DEFAULT_PAGE, MAP_DEFAULTS
 from data import load_data
 from geo import load_tn_geojson
 from scoring import compute_health_score
+from county_trends import compute_county_trends, format_trend
 from filters import (
     Selection,
     prepare_filtered_data,
