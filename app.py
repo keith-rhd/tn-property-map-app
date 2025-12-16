@@ -6,7 +6,6 @@ from config import DEFAULT_PAGE, MAP_DEFAULTS
 from data import load_data
 from geo import load_tn_geojson
 from scoring import compute_health_score
-from county_trends import compute_county_trends, format_trend
 from filters import (
     Selection,
     prepare_filtered_data,
@@ -86,15 +85,7 @@ cut_counts = grp_all.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to
 all_counties = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys())))
 health_score = compute_health_score(all_counties, sold_counts, cut_counts)
 
-# -----------------------------
-# County trends (Sold only): last 12 months vs prior 12 months
-# -----------------------------
-county_trends_df = compute_county_trends(fd.df_time_sold)
-county_delta = county_trends_df["delta"].to_dict() if not county_trends_df.empty else {}
-
-# -----------------------------
-# Rankings DF (Health score + Buyer count + Trend)
-# -----------------------------
+# Rankings DF (only Health score + Buyer count)
 county_rows = []
 for c_up in all_counties:
     buyer_count = int(
@@ -103,24 +94,10 @@ for c_up in all_counties:
         .dropna()
         .nunique()
     )
-
-    delta = int(county_delta.get(c_up, 0))
-    county_rows.append(
-        {
-            "County": c_up.title(),
-            "Health score": float(health_score.get(c_up, 0.0)),
-            "Buyer count": buyer_count,
-            "Trend": format_trend(delta),
-            "_trend_delta": delta,  # hidden numeric helper for sorting (optional)
-        }
-    )
+    county_rows.append({"County": c_up.title(), "Health score": float(health_score.get(c_up, 0.0)), "Buyer count": buyer_count})
 
 rank_df = pd.DataFrame(county_rows)
-
-# If you don't want the helper column visible, drop it before display.
-rank_df_display = rank_df.drop(columns=["_trend_delta"], errors="ignore")
-render_rankings(rank_df_display)
-
+render_rankings(rank_df)
 
 # -----------------------------
 # Buyer-specific sold counts by county
