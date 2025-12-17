@@ -19,13 +19,19 @@ from map_build import build_map
 
 st.set_page_config(**DEFAULT_PAGE)
 
+# -----------------------------
+# Load data
+# -----------------------------
 df = load_data()
 
-# ---- Map state (prevents "jumping" on reruns) ----
+# -----------------------------
+# Map state (prevents "jumping" on reruns)
+# - initialize once from MAP_DEFAULTS
+# -----------------------------
 if "map_center" not in st.session_state:
-    st.session_state["map_center"] = [35.8, -86.35]  # TN-ish center
+    st.session_state["map_center"] = [MAP_DEFAULTS["center_lat"], MAP_DEFAULTS["center_lon"]]
 if "map_zoom" not in st.session_state:
-    st.session_state["map_zoom"] = 7
+    st.session_state["map_zoom"] = MAP_DEFAULTS["zoom_start"]
 
 # -----------------------------
 # One-row UI controls (same as before)
@@ -35,7 +41,6 @@ col1, col3, col4, col5 = st.columns([1.1, 1.6, 1.7, 0.9], gap="small")
 with col1:
     mode = st.radio("View", ["Sold", "Cut Loose", "Both"], index=0, horizontal=True)
 
-# We'll render year first, then compute year-filtered buyer options, then render buyer/topN
 years_available = sorted([int(y) for y in df["Year"].dropna().unique().tolist() if pd.notna(y)])
 
 with col3:
@@ -100,7 +105,13 @@ for c_up in all_counties:
         .dropna()
         .nunique()
     )
-    county_rows.append({"County": c_up.title(), "Health score": float(health_score.get(c_up, 0.0)), "Buyer count": buyer_count})
+    county_rows.append(
+        {
+            "County": c_up.title(),
+            "Health score": float(health_score.get(c_up, 0.0)),
+            "Buyer count": buyer_count,
+        }
+    )
 
 rank_df = pd.DataFrame(county_rows)
 render_rankings(rank_df)
@@ -153,16 +164,34 @@ tn_geo = enrich_geojson_properties(
     mao_range_by_county=mao_range_by_county,
 )
 
+# Build the map using the LAST known center/zoom (prevents jumping on rerun)
 m = build_map(
     tn_geo,
     mode=mode,
     buyer_active=buyer_active,
     buyer_choice=buyer_choice,
-    center_lat=MAP_DEFAULTS["center_lat"],
-    center_lon=MAP_DEFAULTS["center_lon"],
-    zoom_start=MAP_DEFAULTS["zoom_start"],
+    map_center=st.session_state["map_center"],
+    map_zoom=st.session_state["map_zoom"],
     tiles=MAP_DEFAULTS["tiles"],
 )
 
 st.title("Closed RHD Properties Map")
-st_folium(m, width=1800, height=500)
+
+# Render map FULL-WIDTH so it stays centered and stable in layout
+map_state = st_folium(
+    m,
+    height=650,
+    use_container_width=True,
+    key="folium_map",
+)
+
+# Persist center + zoom from the rendered map so reruns don't snap back
+if isinstance(map_state, dict):
+    center = map_state.get("center")
+    zoom = map_state.get("zoom")
+
+    if isinstance(center, dict) and "lat" in center and "lng" in center:
+        st.session_state["map_center"] = [center["lat"], center["lng"]]
+
+    if zoom is not None:
+        st.session_state["map_zoom"] = zoom
