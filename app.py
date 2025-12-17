@@ -163,7 +163,7 @@ tn_geo = enrich_geojson_properties(
     mao_tier_by_county=mao_tier_by_county,
     mao_range_by_county=mao_range_by_county,
 )
-
+st.title("Closed RHD Properties Map")
 # Build the map using the LAST known center/zoom (prevents jumping on rerun)
 m = build_map(
     tn_geo,
@@ -176,7 +176,6 @@ m = build_map(
     tiles=MAP_DEFAULTS["tiles"],
 )
 
-st.title("Closed RHD Properties Map")
 st_folium(m, height=650, use_container_width=True)
 
 
