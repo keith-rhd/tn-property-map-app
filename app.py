@@ -179,12 +179,8 @@ m = build_map(
 st.title("Closed RHD Properties Map")
 
 # Render map FULL-WIDTH so it stays centered and stable in layout
-map_state = st_folium(
-    m,
-    height=650,
-    use_container_width=True,
-    key="folium_map",
-)
+st_folium(m, height=650, use_container_width=True)
+
 
 # Persist center + zoom from the rendered map so reruns don't snap back
 if isinstance(map_state, dict):
