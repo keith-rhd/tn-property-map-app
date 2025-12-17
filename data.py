@@ -95,8 +95,8 @@ def load_data() -> pd.DataFrame:
     df["Status"] = df.get("Status", "Sold").fillna("Sold")
     df["Buyer"] = df.get("Buyer", "").fillna("")
 
-    df[C.DATE_DT] = pd.to_datetime(df.get("Date"), errors="coerce")
-    df[C.YEAR] = df[C.DATE_DT].dt.year
+    df["Date_dt"] = pd.to_datetime(df.get("Date"), errors="coerce")
+    df["Year"] = df["Date_dt"].dt.year
 
     df["County_clean_up"] = (
         df["County"]
