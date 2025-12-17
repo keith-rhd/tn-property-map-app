@@ -21,6 +21,12 @@ st.set_page_config(**DEFAULT_PAGE)
 
 df = load_data()
 
+# ---- Map state (prevents "jumping" on reruns) ----
+if "map_center" not in st.session_state:
+    st.session_state["map_center"] = [35.8, -86.35]  # TN-ish center
+if "map_zoom" not in st.session_state:
+    st.session_state["map_zoom"] = 7
+
 # -----------------------------
 # One-row UI controls (same as before)
 # -----------------------------
