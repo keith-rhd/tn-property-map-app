@@ -69,13 +69,14 @@ df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
 # -----------------------------
 stats = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
 render_overall_stats(
-    year_choice,
-    stats["sold_total"],
-    stats["cut_total"],
-    stats["total_deals"],
-    stats["total_buyers"],
-    stats["close_rate_str"],
+    year_choice=year_choice,
+    sold_total=stats["sold_total"],
+    cut_total=stats["cut_total"],
+    total_deals=stats["total_deals"],
+    total_buyers=stats["total_buyers"],
+    close_rate_str=stats["close_rate_str"],
 )
+
 
 # -----------------------------
 # County health + rankings
