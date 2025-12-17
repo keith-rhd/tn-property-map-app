@@ -170,8 +170,9 @@ m = build_map(
     mode=mode,
     buyer_active=buyer_active,
     buyer_choice=buyer_choice,
-    map_center=st.session_state["map_center"],
-    map_zoom=st.session_state["map_zoom"],
+    center_lat=MAP_DEFAULTS["center_lat"],
+    center_lon=MAP_DEFAULTS["center_lon"],
+    zoom_start=MAP_DEFAULTS["zoom_start"],
     tiles=MAP_DEFAULTS["tiles"],
 )
 
