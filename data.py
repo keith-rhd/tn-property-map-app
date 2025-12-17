@@ -59,27 +59,77 @@ def load_mao_tiers() -> pd.DataFrame:
     out["MAO_Min"] = pd.to_numeric(out[min_col], errors="coerce") if min_col else pd.NA
     out["MAO_Max"] = pd.to_numeric(out[max_col], errors="coerce") if max_col else pd.NA
 
+    @st.cache_data(ttl=60, show_spinner=False)
+def load_mao_tiers() -> pd.DataFrame:
+    if not MAO_TIERS_URL:
+        return pd.DataFrame(
+            columns=["County_clean_up", "MAO_Tier", "MAO_Min", "MAO_Max", "MAO_Range_Str"]
+        )
+
+    t = read_csv_url(MAO_TIERS_URL)
+
+    # Normalize column names
+    cols = {c.strip().lower(): c for c in t.columns}
+
+    def pick(*names):
+        for n in names:
+            if n in cols:
+                return cols[n]
+        return None
+
+    county_col = pick("county")
+    tier_col = pick("tier", "mao tier")
+    min_col = pick("mao min", "min", "mao_min")
+    max_col = pick("mao max", "max", "mao_max")
+
+    if not county_col or not tier_col:
+        return pd.DataFrame(
+            columns=["County_clean_up", "MAO_Tier", "MAO_Min", "MAO_Max", "MAO_Range_Str"]
+        )
+
+    out = t.copy()
+
+    # Normalize county
+    out["County_clean_up"] = (
+        out[county_col]
+        .astype(str)
+        .str.replace(" County", "", case=False)
+        .str.strip()
+        .str.upper()
+    )
+    out.loc[out["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
+
+    out["MAO_Tier"] = out[tier_col].astype(str).str.strip()
+
+    # Convert MAO min/max to numeric
+    out["MAO_Min"] = pd.to_numeric(out[min_col], errors="coerce") if min_col else pd.NA
+    out["MAO_Max"] = pd.to_numeric(out[max_col], errors="coerce") if max_col else pd.NA
+
     def to_pct(x):
-    if pd.isna(x):
-        return pd.NA
-    x = float(x)
-    # If the sheet uses decimals like 0.73, convert to 73
-    return x * 100 if x <= 1.0 else x
+        if pd.isna(x):
+            return pd.NA
+        x = float(x)
+        return x * 100 if x <= 1.0 else x
 
-out["MAO_Min"] = out["MAO_Min"].apply(to_pct) if "MAO_Min" in out.columns else pd.NA
-out["MAO_Max"] = out["MAO_Max"].apply(to_pct) if "MAO_Max" in out.columns else pd.NA
+    out["MAO_Min"] = out["MAO_Min"].apply(to_pct)
+    out["MAO_Max"] = out["MAO_Max"].apply(to_pct)
 
-def fmt_range(r):
-    mn, mx = r["MAO_Min"], r["MAO_Max"]
-    if pd.notna(mn) and pd.notna(mx):
-        return f"{round(mn)}%–{round(mx)}%"
-    if pd.notna(mn):
-        return f"{round(mn)}%+"
-    if pd.notna(mx):
-        return f"≤{round(mx)}%"
-    return ""
+    def fmt_range(r):
+        mn, mx = r["MAO_Min"], r["MAO_Max"]
+        if pd.notna(mn) and pd.notna(mx):
+            return f"{round(mn)}%–{round(mx)}%"
+        if pd.notna(mn):
+            return f"{round(mn)}%+"
+        if pd.notna(mx):
+            return f"≤{round(mx)}%"
+        return ""
 
-out["MAO_Range_Str"] = out.apply(fmt_range, axis=1)
+    out["MAO_Range_Str"] = out.apply(fmt_range, axis=1)
+
+    return out[
+        ["County_clean_up", "MAO_Tier", "MAO_Min", "MAO_Max", "MAO_Range_Str"]
+    ]
+
 
 
     return out[["County_clean_up", "MAO_Tier", "MAO_Min", "MAO_Max", "MAO_Range_Str"]]
