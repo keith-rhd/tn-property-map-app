@@ -96,7 +96,7 @@ def enrich_geojson_properties(
 
         props_list = county_properties_view.get(name_up, [])
         if props_list:
-            lines.append('<div style="max-height: 130px; overflow-y: auto; margin-top: 2px; font-size: 13px;">')
+            lines.append('<div style="max-height: 240px; overflow-y: auto; margin-top: 2px; font-size: 13px;">')
             lines.append("<ul style='padding-left:18px; margin:0;'>")
             for p in props_list:
                 addr = p["Address"]
