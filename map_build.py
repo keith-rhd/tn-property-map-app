@@ -132,8 +132,12 @@ def build_map(
                 font-size: 13.5px;
                 line-height: 1.2;
                 padding: 3px;
+                max-height: 240px;
+                overflow-y: auto;
+                overflow-x: hidden;
             """,
         ),
+
     ).add_to(m)
 
     add_legend(m, mode, buyer_active)
