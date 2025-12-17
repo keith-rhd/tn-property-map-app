@@ -57,8 +57,8 @@ def build_map(tn_geo: dict, *, mode: str, buyer_active: bool, buyer_choice: str,
             "fillOpacity": 0.9,
         }
 
-    tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR"]
-    tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total:", "Close rate:"]
+    tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR", "MAO_TIER", "MAO_RANGE"]
+    tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total:", "Close rate:", "MAO Tier:", "MAO Range:"]
 
     if buyer_active:
         tooltip_fields.append("BUYER_SOLD_COUNT")

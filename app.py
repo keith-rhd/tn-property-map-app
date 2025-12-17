@@ -114,6 +114,14 @@ county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 county_properties_view = build_county_properties_view(df_view)
 
 # -----------------------------
+# Live MAO tiers (one per county)
+# -----------------------------
+mao_df = df[["County_clean_up", "MAO_Tier", "MAO_Range_Str"]].dropna(subset=["County_clean_up"]).copy()
+mao_df = mao_df.drop_duplicates(subset=["County_clean_up"], keep="first")
+mao_tier_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Tier"].fillna("").astype(str)))
+mao_range_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Range_Str"].fillna("").astype(str)))
+
+# -----------------------------
 # Top buyers by county (SOLD only, time-filtered)
 # -----------------------------
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
@@ -135,6 +143,8 @@ tn_geo = enrich_geojson_properties(
     buyer_sold_counts=buyer_sold_counts,
     top_buyers_dict=top_buyers_dict,
     county_properties_view=county_properties_view,
+    mao_tier_by_county=mao_tier_by_county,
+    mao_range_by_county=mao_range_by_county,
 )
 
 m = build_map(
