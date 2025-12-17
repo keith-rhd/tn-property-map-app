@@ -75,7 +75,7 @@ def load_mao_tiers() -> pd.DataFrame:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def load_data() -> pd.DataFrame:
-    df = pd.read_csv(SHEET_URL)
+    df = read_csv_url(SHEET_URL)
 
     missing = REQUIRED_COLS - set(df.columns)
     if missing:
