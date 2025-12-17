@@ -179,14 +179,3 @@ m = build_map(
 st_folium(m, height=650, use_container_width=True)
 
 
-
-# Persist center + zoom from the rendered map so reruns don't snap back
-if isinstance(map_state, dict):
-    center = map_state.get("center")
-    zoom = map_state.get("zoom")
-
-    if isinstance(center, dict) and "lat" in center and "lng" in center:
-        st.session_state["map_center"] = [center["lat"], center["lng"]]
-
-    if zoom is not None:
-        st.session_state["map_zoom"] = zoom
