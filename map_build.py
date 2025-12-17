@@ -46,32 +46,37 @@ def build_map(
     mode: str,
     buyer_active: bool,
     buyer_choice: str,
-    map_center,
-    map_zoom,
+    center_lat: float,
+    center_lon: float,
+    zoom_start: int,
     tiles: str,
 ):
     """
-    Build a Folium map. We pass map_center/map_zoom from st.session_state
-    so the map doesn't snap back to defaults on Streamlit reruns.
+    Build a Folium map that stays centered on Tennessee.
     """
-m = folium.Map(
-    location=[center_lat, center_lon],
-    zoom_start=zoom_start,
-    tiles=tiles,
-    control_scale=True,
-    dragging=False,
-    scrollWheelZoom=False,
-    doubleClickZoom=False,
-    boxZoom=False,
-    keyboard=False,
-    zoom_control=False,
-)
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_start,
+        tiles=tiles,
+        control_scale=True,
+        dragging=False,
+        scrollWheelZoom=False,
+        doubleClickZoom=False,
+        boxZoom=False,
+        keyboard=False,
+        zoom_control=False,
+    )
 
     def style_function(feature):
         p = feature["properties"]
 
         if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
-            return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
+            return {
+                "fillColor": "#FFFFFF",
+                "color": "black",
+                "weight": 0.5,
+                "fillOpacity": 0.15,
+            }
 
         v_for_color = p.get("BUYER_SOLD_COUNT", 0) if buyer_active else p.get("PROP_COUNT", 0)
 
@@ -82,8 +87,24 @@ m = folium.Map(
             "fillOpacity": 0.9,
         }
 
-    tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR", "MAO_TIER", "MAO_RANGE"]
-    tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total:", "Close rate:", "MAO Tier:", "MAO Range:"]
+    tooltip_fields = [
+        "NAME",
+        "SOLD_COUNT",
+        "CUT_COUNT",
+        "TOTAL_COUNT",
+        "CLOSE_RATE_STR",
+        "MAO_TIER",
+        "MAO_RANGE",
+    ]
+    tooltip_aliases = [
+        "County:",
+        "Sold:",
+        "Cut loose:",
+        "Total:",
+        "Close rate:",
+        "MAO Tier:",
+        "MAO Range:",
+    ]
 
     if buyer_active:
         tooltip_fields.append("BUYER_SOLD_COUNT")
