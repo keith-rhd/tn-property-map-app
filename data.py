@@ -1,4 +1,6 @@
 # data.py
+import io
+import requests
 import pandas as pd
 import streamlit as st
 from config import SHEET_URL, REQUIRED_COLS, C, MAO_TIERS_URL
