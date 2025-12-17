@@ -6,6 +6,19 @@ import streamlit as st
 from config import SHEET_URL, REQUIRED_COLS, C, MAO_TIERS_URL
 
 
+def read_csv_url(url: str) -> pd.DataFrame:
+    """
+    Fetch CSV via requests (more reliable than pandas+urllib on Streamlit Cloud),
+    then parse with pandas.
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; TNHeatMap/1.0; +https://streamlit.io)"
+    }
+    r = requests.get(url, headers=headers, timeout=30)
+    r.raise_for_status()
+    return pd.read_csv(io.StringIO(r.text))
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def load_mao_tiers() -> pd.DataFrame:
     """Load MAO tiers from the live 'MAO Tiers' tab."""
