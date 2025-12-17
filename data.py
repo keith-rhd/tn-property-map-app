@@ -88,26 +88,40 @@ def load_mao_tiers() -> pd.DataFrame:
 def load_data() -> pd.DataFrame:
     df = read_csv_url(SHEET_URL)
 
+    # Required columns check (your config uses a set)
     missing = [c for c in REQUIRED_COLS if c not in df.columns]
     if missing:
-        raise ValueError(f"Missing required columns: {missing}")
+        raise ValueError(f"Missing required columns in sheet: {missing}")
 
-    df["Status"] = df.get("Status", "Sold").fillna("Sold")
-    df["Buyer"] = df.get("Buyer", "").fillna("")
+    # Ensure optional columns exist
+    if C.status not in df.columns:
+        df[C.status] = "Sold"
+    df[C.status] = df[C.status].fillna("Sold")
 
-    df["Date_dt"] = pd.to_datetime(df.get("Date"), errors="coerce")
+    if C.buyer not in df.columns:
+        df[C.buyer] = ""
+    df[C.buyer] = df[C.buyer].fillna("")
+
+    # Date parsing
+    if C.date not in df.columns:
+        df[C.date] = ""
+    df["Date_dt"] = pd.to_datetime(df[C.date], errors="coerce")
     df["Year"] = df["Date_dt"].dt.year
 
-    df["County_clean_up"] = (
-        df["County"]
-        .astype(str)
-        .str.replace(" County", "", case=False)
-        .str.strip()
-        .str.upper()
+    # County normalization (used everywhere)
+    df["County_clean"] = (
+        df[C.county].astype(str).str.replace(" County", "", case=False).str.strip()
     )
+    df["County_clean_up"] = df["County_clean"].str.upper()
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
 
+    # These two columns are REQUIRED by filters.py / momentum.py
+    df["Status_norm"] = df[C.status].astype(str).str.lower().str.strip()
+    df["Buyer_clean"] = df[C.buyer].astype(str).str.strip()
+
+    # Merge MAO tiers (live)
     tiers = load_mao_tiers()
-    df = df.merge(tiers, on="County_clean_up", how="left")
+    if not tiers.empty:
+        df = df.merge(tiers, on="County_clean_up", how="left")
 
     return df
