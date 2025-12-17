@@ -54,7 +54,18 @@ def build_map(
     Build a Folium map. We pass map_center/map_zoom from st.session_state
     so the map doesn't snap back to defaults on Streamlit reruns.
     """
-    m = folium.Map(location=map_center, zoom_start=map_zoom, tiles=tiles, control_scale=True)
+m = folium.Map(
+    location=[center_lat, center_lon],
+    zoom_start=zoom_start,
+    tiles=tiles,
+    control_scale=True,
+    dragging=False,
+    scrollWheelZoom=False,
+    doubleClickZoom=False,
+    boxZoom=False,
+    keyboard=False,
+    zoom_control=False,
+)
 
     def style_function(feature):
         p = feature["properties"]
