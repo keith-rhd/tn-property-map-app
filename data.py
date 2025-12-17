@@ -59,17 +59,28 @@ def load_mao_tiers() -> pd.DataFrame:
     out["MAO_Min"] = pd.to_numeric(out[min_col], errors="coerce") if min_col else pd.NA
     out["MAO_Max"] = pd.to_numeric(out[max_col], errors="coerce") if max_col else pd.NA
 
-    def fmt_range(row) -> str:
-        mn, mx = row["MAO_Min"], row["MAO_Max"]
-        if pd.notna(mn) and pd.notna(mx):
-            return f"{int(mn)}%–{int(mx)}%"
-        if pd.notna(mn):
-            return f"{int(mn)}%+"
-        if pd.notna(mx):
-            return f"≤{int(mx)}%"
-        return ""
+    def to_pct(x):
+    if pd.isna(x):
+        return pd.NA
+    x = float(x)
+    # If the sheet uses decimals like 0.73, convert to 73
+    return x * 100 if x <= 1.0 else x
 
-    out["MAO_Range_Str"] = out.apply(fmt_range, axis=1)
+out["MAO_Min"] = out["MAO_Min"].apply(to_pct) if "MAO_Min" in out.columns else pd.NA
+out["MAO_Max"] = out["MAO_Max"].apply(to_pct) if "MAO_Max" in out.columns else pd.NA
+
+def fmt_range(r):
+    mn, mx = r["MAO_Min"], r["MAO_Max"]
+    if pd.notna(mn) and pd.notna(mx):
+        return f"{round(mn)}%–{round(mx)}%"
+    if pd.notna(mn):
+        return f"{round(mn)}%+"
+    if pd.notna(mx):
+        return f"≤{round(mx)}%"
+    return ""
+
+out["MAO_Range_Str"] = out.apply(fmt_range, axis=1)
+
 
     return out[["County_clean_up", "MAO_Tier", "MAO_Min", "MAO_Max", "MAO_Range_Str"]]
 
