@@ -19,7 +19,19 @@ from map_build import build_map
 
 st.set_page_config(**DEFAULT_PAGE)
 
+# -----------------------------
+# Load data
+# -----------------------------
 df = load_data()
+
+# -----------------------------
+# Map state (prevents "jumping" on reruns)
+# - initialize once from MAP_DEFAULTS
+# -----------------------------
+if "map_center" not in st.session_state:
+    st.session_state["map_center"] = [MAP_DEFAULTS["center_lat"], MAP_DEFAULTS["center_lon"]]
+if "map_zoom" not in st.session_state:
+    st.session_state["map_zoom"] = MAP_DEFAULTS["zoom_start"]
 
 # -----------------------------
 # One-row UI controls (same as before)
@@ -29,7 +41,6 @@ col1, col3, col4, col5 = st.columns([1.1, 1.6, 1.7, 0.9], gap="small")
 with col1:
     mode = st.radio("View", ["Sold", "Cut Loose", "Both"], index=0, horizontal=True)
 
-# We'll render year first, then compute year-filtered buyer options, then render buyer/topN
 years_available = sorted([int(y) for y in df["Year"].dropna().unique().tolist() if pd.notna(y)])
 
 with col3:
@@ -94,7 +105,13 @@ for c_up in all_counties:
         .dropna()
         .nunique()
     )
-    county_rows.append({"County": c_up.title(), "Health score": float(health_score.get(c_up, 0.0)), "Buyer count": buyer_count})
+    county_rows.append(
+        {
+            "County": c_up.title(),
+            "Health score": float(health_score.get(c_up, 0.0)),
+            "Buyer count": buyer_count,
+        }
+    )
 
 rank_df = pd.DataFrame(county_rows)
 render_rankings(rank_df)
@@ -112,6 +129,14 @@ if buyer_active:
 # -----------------------------
 county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 county_properties_view = build_county_properties_view(df_view)
+
+# -----------------------------
+# Live MAO tiers (one per county)
+# -----------------------------
+mao_df = df[["County_clean_up", "MAO_Tier", "MAO_Range_Str"]].dropna(subset=["County_clean_up"]).copy()
+mao_df = mao_df.drop_duplicates(subset=["County_clean_up"], keep="first")
+mao_tier_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Tier"].fillna("").astype(str)))
+mao_range_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Range_Str"].fillna("").astype(str)))
 
 # -----------------------------
 # Top buyers by county (SOLD only, time-filtered)
@@ -135,8 +160,11 @@ tn_geo = enrich_geojson_properties(
     buyer_sold_counts=buyer_sold_counts,
     top_buyers_dict=top_buyers_dict,
     county_properties_view=county_properties_view,
+    mao_tier_by_county=mao_tier_by_county,
+    mao_range_by_county=mao_range_by_county,
 )
-
+st.title("Closed RHD Properties Map")
+# Build the map using the LAST known center/zoom (prevents jumping on rerun)
 m = build_map(
     tn_geo,
     mode=mode,
@@ -148,5 +176,6 @@ m = build_map(
     tiles=MAP_DEFAULTS["tiles"],
 )
 
-st.title("Closed RHD Properties Map")
-st_folium(m, width=1800, height=500)
+st_folium(m, height=650, use_container_width=True)
+
+

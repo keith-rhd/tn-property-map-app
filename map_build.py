@@ -1,6 +1,6 @@
-# map_build.py
 import folium
 from colors import category_color
+
 
 def add_legend(m, mode: str, buyer_active: bool):
     legend_html = f"""
@@ -39,14 +39,44 @@ def add_legend(m, mode: str, buyer_active: bool):
 """
     m.get_root().html.add_child(folium.Element(legend_html))
 
-def build_map(tn_geo: dict, *, mode: str, buyer_active: bool, buyer_choice: str, center_lat: float, center_lon: float, zoom_start: int, tiles: str):
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles=tiles)
+
+def build_map(
+    tn_geo: dict,
+    *,
+    mode: str,
+    buyer_active: bool,
+    buyer_choice: str,
+    center_lat: float,
+    center_lon: float,
+    zoom_start: int,
+    tiles: str,
+):
+    """
+    Build a Folium map that stays centered on Tennessee.
+    """
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_start,
+        tiles=tiles,
+        control_scale=True,
+        dragging=False,
+        scrollWheelZoom=False,
+        doubleClickZoom=False,
+        boxZoom=False,
+        keyboard=False,
+        zoom_control=False,
+    )
 
     def style_function(feature):
         p = feature["properties"]
 
         if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
-            return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
+            return {
+                "fillColor": "#FFFFFF",
+                "color": "black",
+                "weight": 0.5,
+                "fillOpacity": 0.15,
+            }
 
         v_for_color = p.get("BUYER_SOLD_COUNT", 0) if buyer_active else p.get("PROP_COUNT", 0)
 
@@ -57,8 +87,24 @@ def build_map(tn_geo: dict, *, mode: str, buyer_active: bool, buyer_choice: str,
             "fillOpacity": 0.9,
         }
 
-    tooltip_fields = ["NAME", "SOLD_COUNT", "CUT_COUNT", "TOTAL_COUNT", "CLOSE_RATE_STR"]
-    tooltip_aliases = ["County:", "Sold:", "Cut loose:", "Total:", "Close rate:"]
+    tooltip_fields = [
+        "NAME",
+        "SOLD_COUNT",
+        "CUT_COUNT",
+        "TOTAL_COUNT",
+        "CLOSE_RATE_STR",
+        "MAO_TIER",
+        "MAO_RANGE",
+    ]
+    tooltip_aliases = [
+        "County:",
+        "Sold:",
+        "Cut loose:",
+        "Total:",
+        "Close rate:",
+        "MAO Tier:",
+        "MAO Range:",
+    ]
 
     if buyer_active:
         tooltip_fields.append("BUYER_SOLD_COUNT")
@@ -86,8 +132,12 @@ def build_map(tn_geo: dict, *, mode: str, buyer_active: bool, buyer_choice: str,
                 font-size: 13.5px;
                 line-height: 1.2;
                 padding: 3px;
+                max-height: 240px;
+                overflow-y: auto;
+                overflow-x: hidden;
             """,
         ),
+
     ).add_to(m)
 
     add_legend(m, mode, buyer_active)

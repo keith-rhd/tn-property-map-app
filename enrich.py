@@ -37,6 +37,8 @@ def enrich_geojson_properties(
     buyer_sold_counts: Dict[str, int],
     top_buyers_dict: Dict[str, list],
     county_properties_view: Dict[str, list],
+    mao_tier_by_county: Dict[str, str] | None = None,
+    mao_range_by_county: Dict[str, str] | None = None,
 ) -> dict:
     for feature in tn_geo["features"]:
         props = feature["properties"]
@@ -60,6 +62,11 @@ def enrich_geojson_properties(
         props["BUYER_SOLD_COUNT"] = buyer_sold
         props["BUYER_NAME"] = buyer_choice
 
+        mao_tier = (mao_tier_by_county or {}).get(name_up, "")
+        mao_range = (mao_range_by_county or {}).get(name_up, "")
+        props["MAO_TIER"] = mao_tier
+        props["MAO_RANGE"] = mao_range
+
         top_list = top_buyers_dict.get(name_up, [])[: int(top_n_buyers)]
         top_buyers_html = ""
         if top_list and mode in ["Sold", "Both"]:
@@ -77,6 +84,10 @@ def enrich_geojson_properties(
             f"<b>Total:</b> {total} &nbsp; <b>Close rate:</b> {close_str}<br>",
         ]
 
+        if mao_tier or mao_range:
+            label = f"{mao_tier} ({mao_range})" if mao_tier and mao_range else (mao_tier or mao_range)
+            lines.append(f"<b>MAO Tier:</b> {label}<br>")
+
         if buyer_active:
             lines.append(f"<b>{buyer_choice} (Sold):</b> {buyer_sold}<br>")
 
@@ -85,7 +96,7 @@ def enrich_geojson_properties(
 
         props_list = county_properties_view.get(name_up, [])
         if props_list:
-            lines.append('<div style="max-height: 130px; overflow-y: auto; margin-top: 2px; font-size: 13px;">')
+            lines.append('<div style="max-height: 240px; overflow-y: auto; margin-top: 2px; font-size: 13px;">')
             lines.append("<ul style='padding-left:18px; margin:0;'>")
             for p in props_list:
                 addr = p["Address"]
