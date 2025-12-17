@@ -124,4 +124,11 @@ def load_data() -> pd.DataFrame:
     if not tiers.empty:
         df = df.merge(tiers, on="County_clean_up", how="left")
 
+    # Ensure MAO columns always exist (prevents KeyError if tiers fail to load)
+if "MAO_Tier" not in df.columns:
+    df["MAO_Tier"] = ""
+if "MAO_Range_Str" not in df.columns:
+    df["MAO_Range_Str"] = ""
+
+
     return df
