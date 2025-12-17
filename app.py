@@ -176,10 +176,9 @@ m = build_map(
     tiles=MAP_DEFAULTS["tiles"],
 )
 
+st.title("Closed RHD Properties Map")
 st_folium(m, height=650, use_container_width=True)
 
-
-st.title("Closed RHD Properties Map")
 
 
 # Persist center + zoom from the rendered map so reruns don't snap back
