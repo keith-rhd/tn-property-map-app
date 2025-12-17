@@ -1,6 +1,6 @@
-# map_build.py
 import folium
 from colors import category_color
+
 
 def add_legend(m, mode: str, buyer_active: bool):
     legend_html = f"""
@@ -39,8 +39,22 @@ def add_legend(m, mode: str, buyer_active: bool):
 """
     m.get_root().html.add_child(folium.Element(legend_html))
 
-def build_map(tn_geo: dict, *, mode: str, buyer_active: bool, buyer_choice: str, center_lat: float, center_lon: float, zoom_start: int, tiles: str):
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start, tiles=tiles)
+
+def build_map(
+    tn_geo: dict,
+    *,
+    mode: str,
+    buyer_active: bool,
+    buyer_choice: str,
+    map_center,
+    map_zoom,
+    tiles: str,
+):
+    """
+    Build a Folium map. We pass map_center/map_zoom from st.session_state
+    so the map doesn't snap back to defaults on Streamlit reruns.
+    """
+    m = folium.Map(location=map_center, zoom_start=map_zoom, tiles=tiles, control_scale=True)
 
     def style_function(feature):
         p = feature["properties"]
