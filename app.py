@@ -13,7 +13,11 @@ from filters import (
     build_view_df,
     compute_overall_stats,
 )
-from ui_sidebar import render_overall_stats, render_rankings
+#from ui_sidebar import render_overall_stats, render_rankings
+#####
+from ui_sidebar import render_overall_stats, render_rankings, render_county_detail_panel
+#####
+
 from enrich import build_top_buyers_dict, build_county_properties_view, enrich_geojson_properties
 from map_build import build_map
 
