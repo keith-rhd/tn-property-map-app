@@ -13,11 +13,7 @@ from filters import (
     build_view_df,
     compute_overall_stats,
 )
-#from ui_sidebar import render_overall_stats, render_rankings
-#####
-from ui_sidebar import render_overall_stats, render_rankings, render_county_detail_panel
-#####
-
+from ui_sidebar import render_overall_stats, render_rankings
 from enrich import build_top_buyers_dict, build_county_properties_view, enrich_geojson_properties
 from map_build import build_map
 
@@ -107,36 +103,6 @@ for c in all_counties:
     )
 
 render_rankings(pd.DataFrame(rows))
-
-###################################################################################
-# -----------------------------
-# County detail panel (sidebar)
-# -----------------------------
-county_options_title = sorted([c.title() for c in all_counties])
-title_to_key = {c.title(): c for c in all_counties}
-
-# Keep the selection stable across reruns
-if "selected_county_key" not in st.session_state:
-    st.session_state["selected_county_key"] = None
-
-selected_key = render_county_detail_panel(
-    county_options_title=county_options_title,
-    title_to_key=title_to_key,
-    selected_key=st.session_state["selected_county_key"],
-    mao_tier_by_county=mao_tier_by_county,
-    mao_range_by_county=mao_range_by_county,
-    sold_counts=sold_counts,
-    cut_counts=cut_counts,
-    buyer_active=buyer_active,
-    buyer_choice=buyer_choice,
-    buyer_sold_counts=buyer_sold_counts,
-    top_buyers_dict=top_buyers_dict,
-    county_properties_view=county_properties_view,
-)
-
-if selected_key:
-    st.session_state["selected_county_key"] = selected_key
-######################################################################################
 
 # -----------------------------
 # Buyer-specific sold counts
