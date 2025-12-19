@@ -10,7 +10,7 @@ def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
     bottom: 10px;
     left: 50%;
     transform: translateX(-50%);
-    background-color: rgba(255,255,255,0.85);
+    background-color: rgba(255,255,255,0.88);
     color: black;
     z-index: 9999;
     font-size: 13px;
@@ -21,20 +21,25 @@ def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
     gap: 14px;
     align-items: center;
 ">
-    <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{mao_color(74.0)}; border:1px solid #000;"></div> &lt;75%
+    <span style='display:flex; align-items:center; gap:6px;'>
+        <div style="width:14px; height:14px; background:{mao_color(0.73)}; border:1px solid #000;"></div>
+        <b>A</b> 0.73–0.77
     </span>
-    <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{mao_color(75.0)}; border:1px solid #000;"></div> 75–79%
+    <span style='display:flex; align-items:center; gap:6px;'>
+        <div style="width:14px; height:14px; background:{mao_color(0.68)}; border:1px solid #000;"></div>
+        <b>B</b> 0.68–0.72
     </span>
-    <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{mao_color(80.0)}; border:1px solid #000;"></div> 80–84%
+    <span style='display:flex; align-items:center; gap:6px;'>
+        <div style="width:14px; height:14px; background:{mao_color(0.61)}; border:1px solid #000;"></div>
+        <b>C</b> 0.61–0.66
     </span>
-    <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:{mao_color(85.0)}; border:1px solid #000;"></div> ≥85%
+    <span style='display:flex; align-items:center; gap:6px;'>
+        <div style="width:14px; height:14px; background:{mao_color(0.53)}; border:1px solid #000;"></div>
+        <b>D</b> 0.53–0.58
     </span>
-    <span style='display:flex; align-items:center; gap:4px;'>
-        <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div> blank
+    <span style='display:flex; align-items:center; gap:6px;'>
+        <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div>
+        blank
     </span>
 </div>
 """
@@ -89,13 +94,8 @@ def build_map(
     center_lon: float,
     zoom_start: int,
     tiles: str,
-    color_scheme: str = "activity",  # ✅ NEW ("activity" or "mao")
+    color_scheme: str = "activity",  # "activity" or "mao"
 ):
-    """
-    color_scheme:
-      - "activity": existing behavior (PROP_COUNT / BUYER_SOLD_COUNT)
-      - "mao": acquisitions coloring by MAO_MIN_PCT
-    """
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom_start,
@@ -112,7 +112,7 @@ def build_map(
     def style_function(feature):
         p = feature["properties"]
 
-        # ✅ MAO coloring
+        # MAO coloring (Acquisitions view)
         if color_scheme == "mao":
             mn = p.get("MAO_MIN_PCT", "")
             try:
@@ -121,36 +121,16 @@ def build_map(
                 mn_val = None
 
             if mn_val is None:
-                return {
-                    "fillColor": "#FFFFFF",
-                    "color": "black",
-                    "weight": 0.5,
-                    "fillOpacity": 0.15,
-                }
+                return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
-            return {
-                "fillColor": mao_color(mn_val),
-                "color": "black",
-                "weight": 0.5,
-                "fillOpacity": 0.9,
-            }
+            return {"fillColor": mao_color(mn_val), "color": "black", "weight": 0.5, "fillOpacity": 0.9}
 
         # Default activity coloring
         if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
-            return {
-                "fillColor": "#FFFFFF",
-                "color": "black",
-                "weight": 0.5,
-                "fillOpacity": 0.15,
-            }
+            return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
         v_for_color = p.get("BUYER_SOLD_COUNT", 0) if buyer_active else p.get("PROP_COUNT", 0)
-        return {
-            "fillColor": category_color(v_for_color, mode, buyer_active),
-            "color": "black",
-            "weight": 0.5,
-            "fillOpacity": 0.9,
-        }
+        return {"fillColor": category_color(v_for_color, mode, buyer_active), "color": "black", "weight": 0.5, "fillOpacity": 0.9}
 
     tooltip_fields = [
         "NAME",
@@ -175,12 +155,7 @@ def build_map(
         tooltip_fields.append("BUYER_SOLD_COUNT")
         tooltip_aliases.append(f"{buyer_choice} (Sold):")
 
-    tooltip = folium.GeoJsonTooltip(
-        fields=tooltip_fields,
-        aliases=tooltip_aliases,
-        localize=True,
-        sticky=False,
-    )
+    tooltip = folium.GeoJsonTooltip(fields=tooltip_fields, aliases=tooltip_aliases, localize=True, sticky=False)
 
     folium.GeoJson(
         tn_geo,
@@ -204,10 +179,5 @@ def build_map(
         ),
     ).add_to(m)
 
-    add_legend(
-        m,
-        legend_mode=("mao" if color_scheme == "mao" else "activity"),
-        mode=mode,
-        buyer_active=buyer_active,
-    )
+    add_legend(m, legend_mode=("mao" if color_scheme == "mao" else "activity"), mode=mode, buyer_active=buyer_active)
     return m
