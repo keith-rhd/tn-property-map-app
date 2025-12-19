@@ -29,20 +29,11 @@ from map_build import build_map
 st.set_page_config(**DEFAULT_PAGE)
 st.title("Closed RHD Properties Map")
 
-# -----------------------------
-# Load data
-# -----------------------------
 df = load_data()
 
-# -----------------------------
-# Sidebar: Team view toggle
-# -----------------------------
 team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
 st.session_state["team_view"] = team_view
 
-# -----------------------------
-# Controls row (top)
-# -----------------------------
 col1, col3, col4, col5 = st.columns([1.1, 1.6, 1.7, 0.9], gap="small")
 
 with col1:
@@ -55,7 +46,6 @@ with col3:
 
 fd = prepare_filtered_data(df, year_choice)
 
-# Buyer controls (Dispo view only)
 if team_view == "Dispo":
     with col4:
         if mode in ["Sold", "Both"]:
@@ -71,7 +61,6 @@ if team_view == "Dispo":
 
     buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
 else:
-    # Acquisitions view: keep buyer filter off to reduce noise
     with col4:
         buyer_choice = "All buyers"
         st.selectbox("Buyer", ["All buyers"], disabled=True)
@@ -92,9 +81,6 @@ sel = Selection(
 
 df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
 
-# -----------------------------
-# Sidebar stats
-# -----------------------------
 stats = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
 render_overall_stats(
     year_choice=year_choice,
@@ -105,25 +91,16 @@ render_overall_stats(
     close_rate_str=stats["close_rate_str"],
 )
 
-# -----------------------------
-# County health + counts
-# -----------------------------
 df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
 grp = df_conv.groupby("County_clean_up")
-
 sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum()).to_dict()
 cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to_dict()
 
-# ✅ FIX: compute_health_score() expects (counties, sold_counts, cut_counts)
 counties = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys())))
 health = compute_health_score(counties, sold_counts, cut_counts)
 
-# -----------------------------
-# Rankings table rows
-# -----------------------------
 rows = []
 all_counties = sorted(df["County_clean_up"].dropna().unique().tolist())
-
 for c in all_counties:
     sold = int(sold_counts.get(c, 0))
     cut = int(cut_counts.get(c, 0))
@@ -164,9 +141,6 @@ else:
         rank_options=["Close rate", "Sold", "Total"],
     )
 
-# -----------------------------
-# Buyer-specific sold counts
-# -----------------------------
 buyer_sold_counts = {}
 if buyer_active:
     buyer_sold_counts = (
@@ -176,15 +150,9 @@ if buyer_active:
         .to_dict()
     )
 
-# -----------------------------
-# County counts + properties in view
-# -----------------------------
 county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 county_properties_view = build_county_properties_view(df_view)
 
-# -----------------------------
-# MAO tiers
-# -----------------------------
 mao_df = df[["County_clean_up", "MAO_Tier", "MAO_Range_Str"]].drop_duplicates("County_clean_up")
 mao_tier_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Tier"]))
 mao_range_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Range_Str"]))
@@ -204,16 +172,9 @@ if team_view == "Acquisitions":
         note="If a county has no tier yet, it will show as blank (—).",
     )
 
-# -----------------------------
-# Top buyers
-# -----------------------------
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
-# -----------------------------
-# Geo + map
-# -----------------------------
 tn_geo = load_tn_geojson()
-
 tn_geo = enrich_geojson_properties(
     tn_geo,
     team_view=team_view,
@@ -231,6 +192,9 @@ tn_geo = enrich_geojson_properties(
     mao_range_by_county=mao_range_by_county,
 )
 
+# ✅ NEW: choose map coloring based on view
+color_scheme = "mao" if team_view == "Acquisitions" else "activity"
+
 m = build_map(
     tn_geo,
     mode=mode,
@@ -240,6 +204,7 @@ m = build_map(
     center_lon=MAP_DEFAULTS["center_lon"],
     zoom_start=MAP_DEFAULTS["zoom_start"],
     tiles=MAP_DEFAULTS["tiles"],
+    color_scheme=color_scheme,
 )
 
 st_folium(m, height=650, use_container_width=True)
