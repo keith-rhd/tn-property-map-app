@@ -13,8 +13,17 @@ from filters import (
     build_view_df,
     compute_overall_stats,
 )
-from ui_sidebar import render_overall_stats, render_rankings
-from enrich import build_top_buyers_dict, build_county_properties_view, enrich_geojson_properties
+from ui_sidebar import (
+    render_team_view_toggle,
+    render_overall_stats,
+    render_rankings,
+    render_acquisitions_guidance,
+)
+from enrich import (
+    build_top_buyers_dict,
+    build_county_properties_view,
+    enrich_geojson_properties,
+)
 from map_build import build_map
 
 st.set_page_config(**DEFAULT_PAGE)
@@ -26,7 +35,13 @@ st.title("Closed RHD Properties Map")
 df = load_data()
 
 # -----------------------------
-# Controls row
+# Sidebar: Team view toggle
+# -----------------------------
+team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
+st.session_state["team_view"] = team_view
+
+# -----------------------------
+# Controls row (top)
 # -----------------------------
 col1, col3, col4, col5 = st.columns([1.1, 1.6, 1.7, 0.9], gap="small")
 
@@ -40,19 +55,32 @@ with col3:
 
 fd = prepare_filtered_data(df, year_choice)
 
-with col4:
-    if mode in ["Sold", "Both"]:
-        labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
-        chosen_label = st.selectbox("Buyer", labels, index=0)
-        buyer_choice = label_to_buyer[chosen_label]
-    else:
+# Buyer controls (Dispo view only)
+if team_view == "Dispo":
+    with col4:
+        if mode in ["Sold", "Both"]:
+            labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
+            chosen_label = st.selectbox("Buyer", labels, index=0)
+            buyer_choice = label_to_buyer[chosen_label]
+        else:
+            buyer_choice = "All buyers"
+            st.selectbox("Buyer", ["All buyers"], disabled=True)
+
+    with col5:
+        TOP_N = st.number_input("Top buyers", min_value=3, max_value=15, value=3)
+
+    buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
+else:
+    # Acquisitions view: keep buyer filter off to reduce noise
+    with col4:
         buyer_choice = "All buyers"
         st.selectbox("Buyer", ["All buyers"], disabled=True)
 
-with col5:
-    TOP_N = st.number_input("Top buyers", min_value=3, max_value=15, value=3)
+    with col5:
+        TOP_N = 3
+        st.number_input("Top buyers", min_value=3, max_value=15, value=3, disabled=True)
 
-buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
+    buyer_active = False
 
 sel = Selection(
     mode=mode,
@@ -77,7 +105,6 @@ render_overall_stats(
     close_rate_str=stats["close_rate_str"],
 )
 
-
 # -----------------------------
 # County health + rankings
 # -----------------------------
@@ -87,22 +114,50 @@ grp = df_conv.groupby("County_clean_up")
 sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum()).to_dict()
 cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to_dict()
 
-all_counties = sorted(set(sold_counts) | set(cut_counts))
-health = compute_health_score(all_counties, sold_counts, cut_counts)
+health = compute_health_score(sold_counts, cut_counts)
 
+# Rankings table rows
 rows = []
-for c in all_counties:
+for c in sorted(df["County_clean_up"].dropna().unique().tolist()):
+    sold = int(sold_counts.get(c, 0))
+    cut = int(cut_counts.get(c, 0))
+    total = sold + cut
+    close_rate = (sold / total) if total > 0 else 0.0
+
     buyer_ct = (
-        fd.df_time_sold.loc[fd.df_time_sold["County_clean_up"] == c, "Buyer_clean"]
+        fd.df_time_sold[fd.df_time_sold["County_clean_up"] == c]["Buyer_clean"]
         .replace("", pd.NA)
         .dropna()
         .nunique()
     )
+
     rows.append(
-        {"County": c.title(), "Health score": float(health.get(c, 0)), "Buyer count": int(buyer_ct)}
+        {
+            "County": c.title(),
+            "Health score": float(health.get(c, 0)),
+            "Buyer count": int(buyer_ct),
+            "Sold": sold,
+            "Cut loose": cut,
+            "Total": total,
+            "Close rate": round(close_rate * 100, 1),
+        }
     )
 
-render_rankings(pd.DataFrame(rows))
+rank_df = pd.DataFrame(rows)
+
+if team_view == "Dispo":
+    render_rankings(
+        rank_df[["County", "Health score", "Buyer count"]],
+        default_rank_metric="Health score",
+        rank_options=["Health score", "Buyer count"],
+    )
+else:
+    # Acquisitions rankings focuses on conversion
+    render_rankings(
+        rank_df[["County", "Close rate", "Sold", "Total", "Cut loose"]],
+        default_rank_metric="Close rate",
+        rank_options=["Close rate", "Sold", "Total"],
+    )
 
 # -----------------------------
 # Buyer-specific sold counts
@@ -117,15 +172,33 @@ if buyer_active:
     )
 
 # -----------------------------
-# Map inputs
+# County counts + properties in view
 # -----------------------------
 county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 county_properties_view = build_county_properties_view(df_view)
 
+# -----------------------------
+# MAO tiers (for acquisitions + popup)
+# -----------------------------
 mao_df = df[["County_clean_up", "MAO_Tier", "MAO_Range_Str"]].drop_duplicates("County_clean_up")
 mao_tier_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Tier"]))
 mao_range_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Range_Str"]))
 
+if team_view == "Acquisitions":
+    # simple county selector for quick MAO lookup
+    counties = sorted(df["County_clean_up"].dropna().unique().tolist())
+    acq_county = st.sidebar.selectbox("County (quick MAO lookup)", [c.title() for c in counties], index=0)
+    acq_key = acq_county.upper()
+    render_acquisitions_guidance(
+        county_choice=acq_county,
+        mao_tier=str(mao_tier_by_county.get(acq_key, "")) or "—",
+        mao_range=str(mao_range_by_county.get(acq_key, "")) or "—",
+        note="If a county has no tier yet, it will show as blank (—).",
+    )
+
+# -----------------------------
+# Top buyers (for Dispo view)
+# -----------------------------
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
 # -----------------------------
@@ -135,6 +208,7 @@ tn_geo = load_tn_geojson()
 
 tn_geo = enrich_geojson_properties(
     tn_geo,
+    team_view=team_view,
     mode=mode,
     buyer_active=buyer_active,
     buyer_choice=buyer_choice,
