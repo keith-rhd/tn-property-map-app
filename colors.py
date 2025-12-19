@@ -22,27 +22,21 @@ def category_color(v: int, mode_: str, buyer_active_: bool = False) -> str:
         if 6 <= v <= 10: return "#fb6a4a"
         return "#cb181d"
 
+    # Both
     if v == 1: return "#deebf7"
     if 2 <= v <= 5: return "#9ecae1"
     if 6 <= v <= 10: return "#4292c6"
     return "#084594"
 
 
-# --- NEW: MAO coloring (Acquisitions view) ---
+# -----------------------------
+# NEW: MAO coloring (Acq view)
+# -----------------------------
 
 def mao_bin(min_pct: float | None) -> int | None:
-    """
-    Convert a county's MAO *minimum percent* into a bin.
-    Returns 0..3 (higher = higher MAO). None if missing.
-    """
+    """Convert a county's MAO minimum percent into a bin. None if missing."""
     if min_pct is None:
         return None
-
-    # Simple bins tuned to your reality (most tiers live 70–85ish)
-    # 0: <75
-    # 1: 75–79
-    # 2: 80–84
-    # 3: >=85
     if min_pct < 75:
         return 0
     if min_pct < 80:
@@ -53,16 +47,11 @@ def mao_bin(min_pct: float | None) -> int | None:
 
 
 def mao_color(min_pct: float | None) -> str:
-    """
-    Higher MAO => 'hotter' => greener.
-    Missing => white.
-    """
+    """Higher MAO => greener. Missing => white."""
     b = mao_bin(min_pct)
     if b is None:
         return "#FFFFFF"
-
-    # red -> orange -> yellow/green -> green
-    if b == 0: return "#ef3b2c"
-    if b == 1: return "#fc8d59"
-    if b == 2: return "#addd8e"
-    return "#31a354"
+    if b == 0: return "#ef3b2c"   # <75
+    if b == 1: return "#fc8d59"   # 75–79
+    if b == 2: return "#addd8e"   # 80–84
+    return "#31a354"              # ≥85
