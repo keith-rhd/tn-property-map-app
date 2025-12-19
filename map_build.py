@@ -1,8 +1,48 @@
 import folium
-from colors import category_color
+from colors import category_color, mao_color, mao_bin
 
 
-def add_legend(m, mode: str, buyer_active: bool):
+def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
+    if legend_mode == "mao":
+        # MAO legend (based on MAO_MIN_PCT bins)
+        legend_html = f"""
+<div style="
+    position: fixed;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(255,255,255,0.85);
+    color: black;
+    z-index: 9999;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid #888;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+">
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:{mao_color(74.0)}; border:1px solid #000;"></div> &lt;75%
+    </span>
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:{mao_color(75.0)}; border:1px solid #000;"></div> 75–79%
+    </span>
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:{mao_color(80.0)}; border:1px solid #000;"></div> 80–84%
+    </span>
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:{mao_color(85.0)}; border:1px solid #000;"></div> ≥85%
+    </span>
+    <span style='display:flex; align-items:center; gap:4px;'>
+        <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div> blank
+    </span>
+</div>
+"""
+        m.get_root().html.add_child(folium.Element(legend_html))
+        return
+
+    # Default legend (old behavior)
     legend_html = f"""
 <div style="
     position: fixed;
@@ -50,9 +90,13 @@ def build_map(
     center_lon: float,
     zoom_start: int,
     tiles: str,
+    color_scheme: str = "activity",  # "activity" or "mao"
 ):
     """
     Build a Folium map that stays centered on Tennessee.
+    color_scheme:
+      - "activity": current behavior (PROP_COUNT / BUYER_SOLD_COUNT)
+      - "mao": acquisitions view coloring by MAO_MIN_PCT
     """
     m = folium.Map(
         location=[center_lat, center_lon],
@@ -70,6 +114,30 @@ def build_map(
     def style_function(feature):
         p = feature["properties"]
 
+        # --- MAO coloring (Acquisitions view) ---
+        if color_scheme == "mao":
+            mn = p.get("MAO_MIN_PCT", "")
+            try:
+                mn_val = float(mn) if mn != "" else None
+            except Exception:
+                mn_val = None
+
+            if mn_val is None:
+                return {
+                    "fillColor": "#FFFFFF",
+                    "color": "black",
+                    "weight": 0.5,
+                    "fillOpacity": 0.15,
+                }
+
+            return {
+                "fillColor": mao_color(mn_val),
+                "color": "black",
+                "weight": 0.5,
+                "fillOpacity": 0.9,
+            }
+
+        # --- Default existing behavior ---
         if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
             return {
                 "fillColor": "#FFFFFF",
@@ -137,8 +205,7 @@ def build_map(
                 overflow-x: hidden;
             """,
         ),
-
     ).add_to(m)
 
-    add_legend(m, mode, buyer_active)
+    add_legend(m, legend_mode=("mao" if color_scheme == "mao" else "activity"), mode=mode, buyer_active=buyer_active)
     return m
