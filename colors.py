@@ -30,28 +30,74 @@ def category_color(v: int, mode_: str, buyer_active_: bool = False) -> str:
 
 
 # -----------------------------
-# NEW: MAO coloring (Acq view)
+# MAO coloring (Acq view)
 # -----------------------------
 
-def mao_bin(min_pct: float | None) -> int | None:
-    """Convert a county's MAO minimum percent into a bin. None if missing."""
-    if min_pct is None:
+def _to_fraction(v: float | None) -> float | None:
+    """
+    Accepts either:
+      - fraction (0.73)
+      - percent (73)
+    Returns fraction (0.73).
+    """
+    if v is None:
         return None
-    if min_pct < 75:
-        return 0
-    if min_pct < 80:
-        return 1
-    if min_pct < 85:
-        return 2
-    return 3
+    try:
+        v = float(v)
+    except Exception:
+        return None
+
+    if v > 1.5:  # treat as percent
+        return v / 100.0
+    return v
 
 
-def mao_color(min_pct: float | None) -> str:
-    """Higher MAO => greener. Missing => white."""
-    b = mao_bin(min_pct)
-    if b is None:
+def mao_tier_from_min(min_val: float | None) -> str | None:
+    """
+    Tier bands based on MAO Min (fraction form):
+      A: 0.73–0.77
+      B: 0.68–0.72
+      C: 0.61–0.66
+      D: 0.53–0.58
+
+    We classify primarily by the MIN value (what acquisitions cares about).
+    """
+    mn = _to_fraction(min_val)
+    if mn is None:
+        return None
+
+    if 0.73 <= mn <= 0.77:
+        return "A"
+    if 0.68 <= mn <= 0.72:
+        return "B"
+    if 0.61 <= mn <= 0.66:
+        return "C"
+    if 0.53 <= mn <= 0.58:
+        return "D"
+
+    # If it's outside the specified bands, assign to nearest lower tier bucket:
+    # (keeps map colored even if a county is slightly off-band)
+    if mn > 0.77:
+        return "A"
+    if mn >= 0.67:
+        return "B"
+    if mn >= 0.59:
+        return "C"
+    if mn >= 0.50:
+        return "D"
+    return None
+
+
+def mao_color(min_val: float | None) -> str:
+    """
+    Tier colors (A hottest/most aggressive MAO => green).
+    Blank/unknown => white.
+    """
+    t = mao_tier_from_min(min_val)
+    if t is None:
         return "#FFFFFF"
-    if b == 0: return "#ef3b2c"   # <75
-    if b == 1: return "#fc8d59"   # 75–79
-    if b == 2: return "#addd8e"   # 80–84
-    return "#31a354"              # ≥85
+
+    if t == "A": return "#1a9850"  # green
+    if t == "B": return "#91cf60"  # light green
+    if t == "C": return "#fdae61"  # orange
+    return "#d73027"               # red (D)
