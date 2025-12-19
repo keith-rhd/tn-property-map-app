@@ -2,6 +2,7 @@
 import pandas as pd
 from typing import Dict, List, Tuple
 
+
 def build_top_buyers_dict(df_time_sold: pd.DataFrame) -> Dict[str, List[Tuple[str, int]]]:
     df_sold_all = df_time_sold[df_time_sold["Buyer_clean"] != ""].copy()
     buyers_by_county = (
@@ -12,11 +13,14 @@ def build_top_buyers_dict(df_time_sold: pd.DataFrame) -> Dict[str, List[Tuple[st
     top_buyers = {}
     for county, g in buyers_by_county.groupby("County_clean_up"):
         g_sorted = g.sort_values("Count", ascending=False)
-        top_buyers[county] = list(zip(g_sorted["Buyer_clean"].tolist(), g_sorted["Count"].tolist()))
+        top_buyers[county] = list(
+            zip(g_sorted["Buyer_clean"].tolist(), g_sorted["Count"].tolist())
+        )
     return top_buyers
 
+
 def build_county_properties_view(df_view: pd.DataFrame) -> Dict[str, list]:
-    out = {}
+    out: Dict[str, list] = {}
     for _, row in df_view.iterrows():
         c = row["County_clean_up"]
         out.setdefault(c, []).append(
@@ -24,9 +28,11 @@ def build_county_properties_view(df_view: pd.DataFrame) -> Dict[str, list]:
         )
     return out
 
+
 def enrich_geojson_properties(
     tn_geo: dict,
     *,
+    team_view: str,
     mode: str,
     buyer_active: bool,
     buyer_choice: str,
@@ -40,43 +46,49 @@ def enrich_geojson_properties(
     mao_tier_by_county: Dict[str, str] | None = None,
     mao_range_by_county: Dict[str, str] | None = None,
 ) -> dict:
+    """Attach computed values + popup HTML to each county feature."""
+
+    team_view_norm = (team_view or "Dispo").strip().lower()
+
     for feature in tn_geo["features"]:
         props = feature["properties"]
         county_name = str(props.get("NAME", "")).strip()
         name_up = county_name.upper()
 
-        view_count = int(county_counts_view.get(name_up, 0))
         sold = int(sold_counts.get(name_up, 0))
         cut = int(cut_counts.get(name_up, 0))
         total = sold + cut
+        close_rate = (sold / total) if total > 0 else 0.0
+        close_str = f"{close_rate*100:.1f}%"
 
-        close_str = f"{(sold/total)*100:.1f}%" if total > 0 else "N/A"
-        buyer_sold = int(buyer_sold_counts.get(name_up, 0)) if buyer_active else 0
-
-        props["NAME"] = county_name
-        props["PROP_COUNT"] = view_count
+        props["PROP_COUNT"] = int(county_counts_view.get(name_up, 0))
         props["SOLD_COUNT"] = sold
         props["CUT_COUNT"] = cut
-        props["TOTAL_COUNT"] = total
-        props["CLOSE_RATE_STR"] = close_str
-        props["BUYER_SOLD_COUNT"] = buyer_sold
-        props["BUYER_NAME"] = buyer_choice
+        props["CLOSE_RATE"] = close_rate
 
+        # Buyer-specific sold count
+        buyer_sold = int(buyer_sold_counts.get(name_up, 0))
+        props["BUYER_SOLD_COUNT"] = buyer_sold
+
+        # MAO info (can be blank)
         mao_tier = (mao_tier_by_county or {}).get(name_up, "")
         mao_range = (mao_range_by_county or {}).get(name_up, "")
         props["MAO_TIER"] = mao_tier
         props["MAO_RANGE"] = mao_range
 
-        top_list = top_buyers_dict.get(name_up, [])[: int(top_n_buyers)]
+        # Top buyers block (Dispo view only)
         top_buyers_html = ""
-        if top_list and mode in ["Sold", "Both"]:
-            top_buyers_html += "<div style='margin-top:6px; margin-bottom:6px;'>"
-            top_buyers_html += "<b>Top buyers in this county:</b><br>"
-            top_buyers_html += "<ol style='margin:4px 0 0 18px; padding:0;'>"
-            for b, c in top_list:
-                top_buyers_html += f"<li>{b} — {int(c)}</li>"
-            top_buyers_html += "</ol></div>"
+        if team_view_norm == "dispo":
+            top_list = (top_buyers_dict.get(name_up, []) or [])[: int(top_n_buyers)]
+            if top_list:
+                top_buyers_html += "<div style='margin-top:6px; margin-bottom:6px;'>"
+                top_buyers_html += "<b>Top buyers in this county:</b><br>"
+                top_buyers_html += "<ol style='margin:4px 0 0 18px; padding:0;'>"
+                for b, c in top_list:
+                    top_buyers_html += f"<li>{b} — {int(c)}</li>"
+                top_buyers_html += "</ol></div>"
 
+        # Popup header + conversion
         lines = [
             f"<h4 style='margin-bottom:4px;'>{county_name} County</h4>",
             f"<span style='color:#2ca25f;'>●</span> <b>Sold:</b> {sold} &nbsp; "
@@ -84,27 +96,42 @@ def enrich_geojson_properties(
             f"<b>Total:</b> {total} &nbsp; <b>Close rate:</b> {close_str}<br>",
         ]
 
+        # MAO (always useful, but acquisitions emphasizes it)
         if mao_tier or mao_range:
-            label = f"{mao_tier} ({mao_range})" if mao_tier and mao_range else (mao_tier or mao_range)
-            lines.append(f"<b>MAO Tier:</b> {label}<br>")
+            label = (
+                f"{mao_tier} ({mao_range})"
+                if mao_tier and mao_range
+                else (mao_tier or mao_range)
+            )
+            if team_view_norm == "acquisitions":
+                lines.append(f"<div style='margin-top:6px;'><b>MAO Tier:</b> {label}</div>")
+            else:
+                lines.append(f"<b>MAO Tier:</b> {label}<br>")
 
-        if buyer_active:
+        # Buyer-specific count (Dispo view only)
+        if team_view_norm == "dispo" and buyer_active:
             lines.append(f"<b>{buyer_choice} (Sold):</b> {buyer_sold}<br>")
 
         if top_buyers_html:
             lines.append(top_buyers_html)
 
+        # Property list (both views)
         props_list = county_properties_view.get(name_up, [])
         if props_list:
-            lines.append('<div style="max-height: 240px; overflow-y: auto; margin-top: 2px; font-size: 13px;">')
-            lines.append("<ul style='padding-left:18px; margin:0;'>")
+            lines.append(
+                '<div style="max-height: 240px; overflow-y: auto; margin-top: 6px; font-size: 13px;">'
+            )
+            lines.append("<b>Properties in view:</b>")
+            lines.append("<ul style='padding-left:18px; margin:6px 0 0 0;'>")
             for p in props_list:
                 addr = p["Address"]
                 city = p["City"]
                 url = p["SF_URL"]
                 display_text = f"{addr}, {city}" if city else addr
                 if isinstance(url, str) and url.strip():
-                    lines.append(f'<li style="margin-bottom:2px;"><a href="{url}" target="_blank">{display_text}</a></li>')
+                    lines.append(
+                        f'<li style="margin-bottom:2px;"><a href="{url}" target="_blank">{display_text}</a></li>'
+                    )
                 else:
                     lines.append(f"<li style='margin-bottom:2px;'>{display_text}</li>")
             lines.append("</ul></div>")
