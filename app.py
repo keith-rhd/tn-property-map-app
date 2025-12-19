@@ -3,7 +3,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from config import DEFAULT_PAGE, MAP_DEFAULTS
-from data import load_data
+from data import load_data, load_mao_tiers
 from geo import load_tn_geojson
 from scoring import compute_health_score
 from filters import (
@@ -30,9 +30,22 @@ st.set_page_config(**DEFAULT_PAGE)
 st.title("Closed RHD Properties Map")
 
 # -----------------------------
-# Load data
+# Load data (deals) + tiers (all counties)
 # -----------------------------
 df = load_data()
+tiers = load_mao_tiers()  # <-- IMPORTANT: tiers table may include counties with 0 deals
+
+# Build MAO dicts from TIERS (not from df)
+mao_tier_by_county = {}
+mao_range_by_county = {}
+
+if tiers is not None and not tiers.empty:
+    mao_tier_by_county = dict(zip(tiers["County_clean_up"], tiers["MAO_Tier"]))
+    mao_range_by_county = dict(zip(tiers["County_clean_up"], tiers["MAO_Range_Str"]))
+else:
+    # Safe fallback (won't crash)
+    mao_tier_by_county = {}
+    mao_range_by_county = {}
 
 # -----------------------------
 # Sidebar: Team view toggle
@@ -41,23 +54,22 @@ team_view = render_team_view_toggle(default=st.session_state.get("team_view", "D
 st.session_state["team_view"] = team_view
 
 # -----------------------------
-# Build MAO dicts early (so Acquisitions guidance can be at top)
-# -----------------------------
-mao_df = df[["County_clean_up", "MAO_Tier", "MAO_Range_Str"]].drop_duplicates("County_clean_up")
-mao_tier_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Tier"]))
-mao_range_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Range_Str"]))
-
-# -----------------------------
 # Acquisitions sidebar: MAO lookup at TOP (and remove overall stats)
 # -----------------------------
 if team_view == "Acquisitions":
-    counties_upper = sorted(df["County_clean_up"].dropna().unique().tolist())
+    # Use tier sheet list if available; otherwise fall back to deal counties
+    if tiers is not None and not tiers.empty:
+        county_options = sorted(tiers["County_clean_up"].dropna().unique().tolist())
+    else:
+        county_options = sorted(df["County_clean_up"].dropna().unique().tolist())
+
     acq_county = st.sidebar.selectbox(
         "County (quick MAO lookup)",
-        [c.title() for c in counties_upper],
+        [c.title() for c in county_options],
         index=0,
     )
     acq_key = acq_county.upper()
+
     render_acquisitions_guidance(
         county_choice=acq_county,
         mao_tier=str(mao_tier_by_county.get(acq_key, "")) or "—",
