@@ -2,6 +2,22 @@
 import pandas as pd
 import streamlit as st
 
+
+def render_team_view_toggle(default: str = "Dispo") -> str:
+    """Sidebar toggle between Dispo and Acquisitions views."""
+    st.sidebar.markdown("## Team view")
+    options = ["Dispo", "Acquisitions"]
+    index = 0 if default not in options else options.index(default)
+    team_view = st.sidebar.radio(
+        "Choose a view",
+        options,
+        index=index,
+        label_visibility="collapsed",
+    )
+    st.sidebar.markdown("---")
+    return team_view
+
+
 def render_overall_stats(*, year_choice, sold_total, cut_total, total_deals, total_buyers, close_rate_str):
     st.sidebar.markdown("## Overall stats")
     st.sidebar.caption(f"Year: **{year_choice}**")
@@ -35,9 +51,46 @@ def render_overall_stats(*, year_choice, sold_total, cut_total, total_deals, tot
     )
     st.sidebar.markdown("---")
 
-def render_rankings(rank_df: pd.DataFrame):
+
+def render_acquisitions_guidance(*, county_choice: str, mao_tier: str, mao_range: str, note: str | None = None):
+    st.sidebar.markdown("## MAO guidance")
+    st.sidebar.caption("Select a county on the map, or use this dropdown.")
+
+    st.sidebar.markdown(
+        f"""<div style="
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 10px;
+        padding: 10px 12px;
+    ">
+        <div style="margin-bottom:6px;"><b>County:</b> {county_choice}</div>
+        <div style="margin-bottom:6px;"><b>MAO Tier:</b> {mao_tier}</div>
+        <div><b>MAO Range:</b> {mao_range}</div>
+    </div>""",
+        unsafe_allow_html=True,
+    )
+
+    if note:
+        st.sidebar.info(note)
+
+
+def render_rankings(rank_df: pd.DataFrame, *, default_rank_metric: str, rank_options: list[str]):
     st.sidebar.markdown("## County rankings")
-    rank_metric = st.sidebar.selectbox("Rank by", ["Health score", "Buyer count"], index=0)
+
+    # keep options that actually exist in the dataframe
+    available = [c for c in rank_options if c in rank_df.columns]
+    if not available:
+        st.sidebar.warning("No ranking metrics available.")
+        return None, None
+
+    if default_rank_metric not in available:
+        default_rank_metric = available[0]
+
+    rank_metric = st.sidebar.selectbox(
+        "Rank by",
+        available,
+        index=available.index(default_rank_metric),
+    )
     top_n = st.sidebar.slider("Top N", 5, 50, 15, 5)
 
     st.sidebar.dataframe(
