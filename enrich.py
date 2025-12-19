@@ -24,7 +24,11 @@ def build_county_properties_view(df_view: pd.DataFrame) -> Dict[str, list]:
     for _, row in df_view.iterrows():
         c = row["County_clean_up"]
         out.setdefault(c, []).append(
-            {"Address": row["Address"], "City": row["City"], "SF_URL": row["Salesforce_URL"]}
+            {
+                "Address": row["Address"],
+                "City": row["City"],
+                "SF_URL": row["Salesforce_URL"],
+            }
         )
     return out
 
@@ -60,49 +64,41 @@ def enrich_geojson_properties(
         total = sold + cut
 
         close_rate_num = (sold / total) if total > 0 else 0.0
-        close_str = f"{close_rate_num * 100:.1f}%"
+        close_rate_str = f"{close_rate_num * 100:.1f}%"
 
-        # ---- REQUIRED for map_build.py tooltip fields ----
+        # ------------------------------------------------------------
+        # REQUIRED: these keys MUST exist for map_build.py tooltip
+        # ------------------------------------------------------------
         props["SOLD_COUNT"] = sold
         props["CUT_COUNT"] = cut
-        props["TOTAL_COUNT"] = total                  # ✅ FIX: was missing
-        props["CLOSE_RATE"] = close_str               # show a nice % in tooltip
-        # -------------------------------------------------
+        props["TOTAL_COUNT"] = total
+        props["CLOSE_RATE_STR"] = close_rate_str  # ✅ FIX: exact key name expected
+        # ------------------------------------------------------------
 
-        # Used for coloring
+        # Used for map coloring (PROP_COUNT drives category_color when buyer_active is False)
         props["PROP_COUNT"] = int(county_counts_view.get(name_up, 0))
 
-        # Buyer-specific sold count
+        # Buyer-specific sold count (tooltip adds this field only when buyer_active=True)
         buyer_sold = int(buyer_sold_counts.get(name_up, 0))
         props["BUYER_SOLD_COUNT"] = buyer_sold
 
-        # MAO info (can be blank)
+        # MAO info (can be blank, but keys must exist)
         mao_tier = (mao_tier_by_county or {}).get(name_up, "") or ""
         mao_range = (mao_range_by_county or {}).get(name_up, "") or ""
         props["MAO_TIER"] = mao_tier
         props["MAO_RANGE"] = mao_range
 
-        # Top buyers block (Dispo view only)
-        top_buyers_html = ""
-        if team_view_norm == "dispo":
-            top_list = (top_buyers_dict.get(name_up, []) or [])[: int(top_n_buyers)]
-            if top_list:
-                top_buyers_html += "<div style='margin-top:6px; margin-bottom:6px;'>"
-                top_buyers_html += "<b>Top buyers in this county:</b><br>"
-                top_buyers_html += "<ol style='margin:4px 0 0 18px; padding:0;'>"
-                for b, c in top_list:
-                    top_buyers_html += f"<li>{b} — {int(c)}</li>"
-                top_buyers_html += "</ol></div>"
-
-        # Popup header + conversion
+        # -----------------------------
+        # Popup HTML
+        # -----------------------------
         lines = [
             f"<h4 style='margin-bottom:4px;'>{county_name} County</h4>",
             f"<span style='color:#2ca25f;'>●</span> <b>Sold:</b> {sold} &nbsp; "
             f"<span style='color:#cb181d;'>●</span> <b>Cut loose:</b> {cut}<br>",
-            f"<b>Total:</b> {total} &nbsp; <b>Close rate:</b> {close_str}<br>",
+            f"<b>Total:</b> {total} &nbsp; <b>Close rate:</b> {close_rate_str}<br>",
         ]
 
-        # MAO (always useful, but acquisitions emphasizes it)
+        # MAO (always useful; acquisitions emphasizes it more visually)
         if mao_tier or mao_range:
             label = (
                 f"{mao_tier} ({mao_range})"
@@ -118,8 +114,16 @@ def enrich_geojson_properties(
         if team_view_norm == "dispo" and buyer_active:
             lines.append(f"<b>{buyer_choice} (Sold):</b> {buyer_sold}<br>")
 
-        if top_buyers_html:
-            lines.append(top_buyers_html)
+        # Top buyers block (Dispo view only)
+        if team_view_norm == "dispo":
+            top_list = (top_buyers_dict.get(name_up, []) or [])[: int(top_n_buyers)]
+            if top_list:
+                lines.append("<div style='margin-top:6px; margin-bottom:6px;'>")
+                lines.append("<b>Top buyers in this county:</b><br>")
+                lines.append("<ol style='margin:4px 0 0 18px; padding:0;'>")
+                for b, c in top_list:
+                    lines.append(f"<li>{b} — {int(c)}</li>")
+                lines.append("</ol></div>")
 
         # Property list (both views)
         props_list = county_properties_view.get(name_up, [])
