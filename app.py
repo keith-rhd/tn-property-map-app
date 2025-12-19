@@ -29,11 +29,46 @@ from map_build import build_map
 st.set_page_config(**DEFAULT_PAGE)
 st.title("Closed RHD Properties Map")
 
+# -----------------------------
+# Load data
+# -----------------------------
 df = load_data()
 
+# -----------------------------
+# Sidebar: Team view toggle
+# -----------------------------
 team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
 st.session_state["team_view"] = team_view
 
+# -----------------------------
+# Build MAO dicts early (so Acquisitions guidance can be at top)
+# -----------------------------
+mao_df = df[["County_clean_up", "MAO_Tier", "MAO_Range_Str"]].drop_duplicates("County_clean_up")
+mao_tier_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Tier"]))
+mao_range_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Range_Str"]))
+
+# -----------------------------
+# Acquisitions sidebar: MAO lookup at TOP (and remove overall stats)
+# -----------------------------
+if team_view == "Acquisitions":
+    counties_upper = sorted(df["County_clean_up"].dropna().unique().tolist())
+    acq_county = st.sidebar.selectbox(
+        "County (quick MAO lookup)",
+        [c.title() for c in counties_upper],
+        index=0,
+    )
+    acq_key = acq_county.upper()
+    render_acquisitions_guidance(
+        county_choice=acq_county,
+        mao_tier=str(mao_tier_by_county.get(acq_key, "")) or "—",
+        mao_range=str(mao_range_by_county.get(acq_key, "")) or "—",
+        note="If a county has no tier yet, it will show as blank (—).",
+    )
+    st.sidebar.markdown("---")
+
+# -----------------------------
+# Controls row (top)
+# -----------------------------
 col1, col3, col4, col5 = st.columns([1.1, 1.6, 1.7, 0.9], gap="small")
 
 with col1:
@@ -46,6 +81,7 @@ with col3:
 
 fd = prepare_filtered_data(df, year_choice)
 
+# Buyer controls (Dispo view only)
 if team_view == "Dispo":
     with col4:
         if mode in ["Sold", "Both"]:
@@ -81,16 +117,23 @@ sel = Selection(
 
 df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
 
-stats = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
-render_overall_stats(
-    year_choice=year_choice,
-    sold_total=stats["sold_total"],
-    cut_total=stats["cut_total"],
-    total_deals=stats["total_deals"],
-    total_buyers=stats["total_buyers"],
-    close_rate_str=stats["close_rate_str"],
-)
+# -----------------------------
+# Sidebar overall stats (DISPO ONLY)
+# -----------------------------
+if team_view == "Dispo":
+    stats = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
+    render_overall_stats(
+        year_choice=year_choice,
+        sold_total=stats["sold_total"],
+        cut_total=stats["cut_total"],
+        total_deals=stats["total_deals"],
+        total_buyers=stats["total_buyers"],
+        close_rate_str=stats["close_rate_str"],
+    )
 
+# -----------------------------
+# County health + counts
+# -----------------------------
 df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
 grp = df_conv.groupby("County_clean_up")
 sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum()).to_dict()
@@ -99,8 +142,12 @@ cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to_dic
 counties = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys())))
 health = compute_health_score(counties, sold_counts, cut_counts)
 
+# -----------------------------
+# Rankings table rows
+# -----------------------------
 rows = []
 all_counties = sorted(df["County_clean_up"].dropna().unique().tolist())
+
 for c in all_counties:
     sold = int(sold_counts.get(c, 0))
     cut = int(cut_counts.get(c, 0))
@@ -141,6 +188,9 @@ else:
         rank_options=["Close rate", "Sold", "Total"],
     )
 
+# -----------------------------
+# Buyer-specific sold counts
+# -----------------------------
 buyer_sold_counts = {}
 if buyer_active:
     buyer_sold_counts = (
@@ -150,31 +200,22 @@ if buyer_active:
         .to_dict()
     )
 
+# -----------------------------
+# County counts + properties in view
+# -----------------------------
 county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 county_properties_view = build_county_properties_view(df_view)
 
-mao_df = df[["County_clean_up", "MAO_Tier", "MAO_Range_Str"]].drop_duplicates("County_clean_up")
-mao_tier_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Tier"]))
-mao_range_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Range_Str"]))
-
-if team_view == "Acquisitions":
-    counties_upper = sorted(df["County_clean_up"].dropna().unique().tolist())
-    acq_county = st.sidebar.selectbox(
-        "County (quick MAO lookup)",
-        [c.title() for c in counties_upper],
-        index=0
-    )
-    acq_key = acq_county.upper()
-    render_acquisitions_guidance(
-        county_choice=acq_county,
-        mao_tier=str(mao_tier_by_county.get(acq_key, "")) or "—",
-        mao_range=str(mao_range_by_county.get(acq_key, "")) or "—",
-        note="If a county has no tier yet, it will show as blank (—).",
-    )
-
+# -----------------------------
+# Top buyers (for Dispo view popups)
+# -----------------------------
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
+# -----------------------------
+# Geo + map
+# -----------------------------
 tn_geo = load_tn_geojson()
+
 tn_geo = enrich_geojson_properties(
     tn_geo,
     team_view=team_view,
@@ -192,7 +233,7 @@ tn_geo = enrich_geojson_properties(
     mao_range_by_county=mao_range_by_county,
 )
 
-# ✅ NEW: choose map coloring based on view
+# Choose map coloring based on view
 color_scheme = "mao" if team_view == "Acquisitions" else "activity"
 
 m = build_map(
