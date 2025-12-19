@@ -106,7 +106,7 @@ render_overall_stats(
 )
 
 # -----------------------------
-# County health + rankings
+# County health + counts
 # -----------------------------
 df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
 grp = df_conv.groupby("County_clean_up")
@@ -114,11 +114,17 @@ grp = df_conv.groupby("County_clean_up")
 sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum()).to_dict()
 cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to_dict()
 
-health = compute_health_score(sold_counts, cut_counts)
+# ✅ FIX: compute_health_score() expects (counties, sold_counts, cut_counts)
+counties = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys())))
+health = compute_health_score(counties, sold_counts, cut_counts)
 
+# -----------------------------
 # Rankings table rows
+# -----------------------------
 rows = []
-for c in sorted(df["County_clean_up"].dropna().unique().tolist()):
+all_counties = sorted(df["County_clean_up"].dropna().unique().tolist())
+
+for c in all_counties:
     sold = int(sold_counts.get(c, 0))
     cut = int(cut_counts.get(c, 0))
     total = sold + cut
@@ -152,7 +158,6 @@ if team_view == "Dispo":
         rank_options=["Health score", "Buyer count"],
     )
 else:
-    # Acquisitions rankings focuses on conversion
     render_rankings(
         rank_df[["County", "Close rate", "Sold", "Total", "Cut loose"]],
         default_rank_metric="Close rate",
@@ -178,16 +183,19 @@ county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 county_properties_view = build_county_properties_view(df_view)
 
 # -----------------------------
-# MAO tiers (for acquisitions + popup)
+# MAO tiers
 # -----------------------------
 mao_df = df[["County_clean_up", "MAO_Tier", "MAO_Range_Str"]].drop_duplicates("County_clean_up")
 mao_tier_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Tier"]))
 mao_range_by_county = dict(zip(mao_df["County_clean_up"], mao_df["MAO_Range_Str"]))
 
 if team_view == "Acquisitions":
-    # simple county selector for quick MAO lookup
-    counties = sorted(df["County_clean_up"].dropna().unique().tolist())
-    acq_county = st.sidebar.selectbox("County (quick MAO lookup)", [c.title() for c in counties], index=0)
+    counties_upper = sorted(df["County_clean_up"].dropna().unique().tolist())
+    acq_county = st.sidebar.selectbox(
+        "County (quick MAO lookup)",
+        [c.title() for c in counties_upper],
+        index=0
+    )
     acq_key = acq_county.upper()
     render_acquisitions_guidance(
         county_choice=acq_county,
@@ -197,7 +205,7 @@ if team_view == "Acquisitions":
     )
 
 # -----------------------------
-# Top buyers (for Dispo view)
+# Top buyers
 # -----------------------------
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
