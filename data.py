@@ -1,4 +1,5 @@
 import io
+import re
 import pandas as pd
 import requests
 import streamlit as st
@@ -13,6 +14,22 @@ def _read_csv(url: str) -> pd.DataFrame:
     return pd.read_csv(io.StringIO(r.text))
 
 
+def _normalize_county_key(x: str) -> str:
+    """
+    Very forgiving county normalizer used ONLY for joining tiers <-> deals.
+    Removes:
+      - 'COUNTY' word
+      - punctuation
+      - all whitespace
+    Keeps only A–Z characters.
+    """
+    s = "" if x is None else str(x)
+    s = s.upper().strip()
+    s = re.sub(r"\bCOUNTY\b", "", s)  # remove word COUNTY if present
+    s = re.sub(r"[^A-Z]", "", s)      # keep only letters (removes spaces, punctuation)
+    return s
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def load_mao_tiers() -> pd.DataFrame:
     """
@@ -20,9 +37,9 @@ def load_mao_tiers() -> pd.DataFrame:
     Supports either:
       - a single 'MAO Range' column, OR
       - 'MAO Min' / 'MAO Max' columns (decimals like 0.73 supported).
-    Always returns: County_clean_up, MAO_Tier, MAO_Range_Str
+    Always returns: County_clean_up, County_key, MAO_Tier, MAO_Range_Str
     """
-    out_cols = ["County_clean_up", "MAO_Tier", "MAO_Range_Str"]
+    out_cols = ["County_clean_up", "County_key", "MAO_Tier", "MAO_Range_Str"]
 
     if not MAO_TIERS_URL:
         return pd.DataFrame(columns=out_cols)
@@ -59,7 +76,12 @@ def load_mao_tiers() -> pd.DataFrame:
         .str.strip()
         .str.upper()
     )
+
+    # common typo guard
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
+
+    # NEW: robust join key
+    df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
 
     df["MAO_Tier"] = df[tier_col].astype(str).str.strip()
 
@@ -76,7 +98,7 @@ def load_mao_tiers() -> pd.DataFrame:
         if pd.isna(x):
             return pd.NA
         x = float(x)
-        return x * 100 if x <= 1.0 else x  # handle 0.73 vs 73
+        return x * 100 if x <= 1.0 else x  # handles 0.73 vs 73
 
     df["_mn"] = df["_mn"].apply(to_pct)
     df["_mx"] = df["_mx"].apply(to_pct)
@@ -117,7 +139,7 @@ def load_data() -> pd.DataFrame:
     df["Date_dt"] = pd.to_datetime(df.get(C.date), errors="coerce")
     df["Year"] = df["Date_dt"].dt.year
 
-    # County normalization
+    # County normalization (display-friendly)
     df["County_clean_up"] = (
         df[C.county]
         .astype(str)
@@ -127,22 +149,26 @@ def load_data() -> pd.DataFrame:
     )
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
 
+    # NEW: robust join key (used only for merge)
+    df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
+
     # Needed by filters.py / momentum.py
     df["Status_norm"] = df[C.status].astype(str).str.lower().str.strip()
     df["Buyer_clean"] = df[C.buyer].astype(str).str.strip()
 
-    # Merge MAO tiers (safe)
+    # Merge MAO tiers (safe + robust)
     try:
         tiers = load_mao_tiers()
         if not tiers.empty:
-            df = df.merge(tiers, on="County_clean_up", how="left")
+            # merge on robust key, keep df's County_clean_up for display
+            df = df.merge(
+                tiers[["County_key", "MAO_Tier", "MAO_Range_Str"]],
+                on="County_key",
+                how="left",
+            )
     except Exception:
-        pass
-
-    # Guarantee columns exist (prevents KeyError in app.py)
-    if "MAO_Tier" not in df.columns:
+        # don't break the app if the tiers sheet has issues
         df["MAO_Tier"] = ""
-    if "MAO_Range_Str" not in df.columns:
         df["MAO_Range_Str"] = ""
 
     return df
