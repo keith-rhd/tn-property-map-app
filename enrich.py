@@ -58,21 +58,27 @@ def enrich_geojson_properties(
         sold = int(sold_counts.get(name_up, 0))
         cut = int(cut_counts.get(name_up, 0))
         total = sold + cut
-        close_rate = (sold / total) if total > 0 else 0.0
-        close_str = f"{close_rate*100:.1f}%"
 
-        props["PROP_COUNT"] = int(county_counts_view.get(name_up, 0))
+        close_rate_num = (sold / total) if total > 0 else 0.0
+        close_str = f"{close_rate_num * 100:.1f}%"
+
+        # ---- REQUIRED for map_build.py tooltip fields ----
         props["SOLD_COUNT"] = sold
         props["CUT_COUNT"] = cut
-        props["CLOSE_RATE"] = close_rate
+        props["TOTAL_COUNT"] = total                  # ✅ FIX: was missing
+        props["CLOSE_RATE"] = close_str               # show a nice % in tooltip
+        # -------------------------------------------------
+
+        # Used for coloring
+        props["PROP_COUNT"] = int(county_counts_view.get(name_up, 0))
 
         # Buyer-specific sold count
         buyer_sold = int(buyer_sold_counts.get(name_up, 0))
         props["BUYER_SOLD_COUNT"] = buyer_sold
 
         # MAO info (can be blank)
-        mao_tier = (mao_tier_by_county or {}).get(name_up, "")
-        mao_range = (mao_range_by_county or {}).get(name_up, "")
+        mao_tier = (mao_tier_by_county or {}).get(name_up, "") or ""
+        mao_range = (mao_range_by_county or {}).get(name_up, "") or ""
         props["MAO_TIER"] = mao_tier
         props["MAO_RANGE"] = mao_range
 
