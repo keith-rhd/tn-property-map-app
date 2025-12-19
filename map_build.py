@@ -1,10 +1,9 @@
 import folium
-from colors import category_color, mao_color, mao_bin
+from colors import category_color, mao_color
 
 
 def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
     if legend_mode == "mao":
-        # MAO legend (based on MAO_MIN_PCT bins)
         legend_html = f"""
 <div style="
     position: fixed;
@@ -42,7 +41,7 @@ def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
         m.get_root().html.add_child(folium.Element(legend_html))
         return
 
-    # Default legend (old behavior)
+    # Default legend (activity)
     legend_html = f"""
 <div style="
     position: fixed;
@@ -90,13 +89,12 @@ def build_map(
     center_lon: float,
     zoom_start: int,
     tiles: str,
-    color_scheme: str = "activity",  # "activity" or "mao"
+    color_scheme: str = "activity",  # ✅ NEW ("activity" or "mao")
 ):
     """
-    Build a Folium map that stays centered on Tennessee.
     color_scheme:
-      - "activity": current behavior (PROP_COUNT / BUYER_SOLD_COUNT)
-      - "mao": acquisitions view coloring by MAO_MIN_PCT
+      - "activity": existing behavior (PROP_COUNT / BUYER_SOLD_COUNT)
+      - "mao": acquisitions coloring by MAO_MIN_PCT
     """
     m = folium.Map(
         location=[center_lat, center_lon],
@@ -114,7 +112,7 @@ def build_map(
     def style_function(feature):
         p = feature["properties"]
 
-        # --- MAO coloring (Acquisitions view) ---
+        # ✅ MAO coloring
         if color_scheme == "mao":
             mn = p.get("MAO_MIN_PCT", "")
             try:
@@ -137,7 +135,7 @@ def build_map(
                 "fillOpacity": 0.9,
             }
 
-        # --- Default existing behavior ---
+        # Default activity coloring
         if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
             return {
                 "fillColor": "#FFFFFF",
@@ -147,7 +145,6 @@ def build_map(
             }
 
         v_for_color = p.get("BUYER_SOLD_COUNT", 0) if buyer_active else p.get("PROP_COUNT", 0)
-
         return {
             "fillColor": category_color(v_for_color, mode, buyer_active),
             "color": "black",
@@ -207,5 +204,10 @@ def build_map(
         ),
     ).add_to(m)
 
-    add_legend(m, legend_mode=("mao" if color_scheme == "mao" else "activity"), mode=mode, buyer_active=buyer_active)
+    add_legend(
+        m,
+        legend_mode=("mao" if color_scheme == "mao" else "activity"),
+        mode=mode,
+        buyer_active=buyer_active,
+    )
     return m
