@@ -33,6 +33,59 @@ def build_county_properties_view(df_view: pd.DataFrame) -> Dict[str, list]:
     return out
 
 
+def _parse_mao_range_to_min_max(range_str: str) -> tuple[float | None, float | None]:
+    """
+    Supports:
+      - '75%–80%'
+      - '75%+'
+      - '≤80%'
+      - ''
+    Returns (min_pct, max_pct) as floats like 75.0
+    """
+    if not isinstance(range_str, str):
+        return None, None
+
+    s = range_str.strip()
+    if not s:
+        return None, None
+
+    s = s.replace(" ", "")
+    s = s.replace("–", "-")  # normalize dash
+
+    # ≤80%
+    if s.startswith("≤"):
+        try:
+            mx = float(s.replace("≤", "").replace("%", ""))
+            return None, mx
+        except Exception:
+            return None, None
+
+    # 75%+
+    if s.endswith("+"):
+        try:
+            mn = float(s.replace("+", "").replace("%", ""))
+            return mn, None
+        except Exception:
+            return None, None
+
+    # 75%-80%
+    if "-" in s:
+        a, b = s.split("-", 1)
+        try:
+            mn = float(a.replace("%", ""))
+            mx = float(b.replace("%", ""))
+            return mn, mx
+        except Exception:
+            return None, None
+
+    # single number '80%'
+    try:
+        val = float(s.replace("%", ""))
+        return val, val
+    except Exception:
+        return None, None
+
+
 def enrich_geojson_properties(
     tn_geo: dict,
     *,
@@ -50,8 +103,6 @@ def enrich_geojson_properties(
     mao_tier_by_county: Dict[str, str] | None = None,
     mao_range_by_county: Dict[str, str] | None = None,
 ) -> dict:
-    """Attach computed values + popup HTML to each county feature."""
-
     team_view_norm = (team_view or "Dispo").strip().lower()
 
     for feature in tn_geo["features"]:
@@ -66,27 +117,29 @@ def enrich_geojson_properties(
         close_rate_num = (sold / total) if total > 0 else 0.0
         close_rate_str = f"{close_rate_num * 100:.1f}%"
 
-        # ------------------------------------------------------------
-        # REQUIRED: these keys MUST exist for map_build.py tooltip
-        # ------------------------------------------------------------
+        # Tooltip-required keys
         props["SOLD_COUNT"] = sold
         props["CUT_COUNT"] = cut
         props["TOTAL_COUNT"] = total
-        props["CLOSE_RATE_STR"] = close_rate_str  # ✅ FIX: exact key name expected
-        # ------------------------------------------------------------
+        props["CLOSE_RATE_STR"] = close_rate_str
 
-        # Used for map coloring (PROP_COUNT drives category_color when buyer_active is False)
+        # Used for default coloring in Dispo
         props["PROP_COUNT"] = int(county_counts_view.get(name_up, 0))
 
-        # Buyer-specific sold count (tooltip adds this field only when buyer_active=True)
+        # Buyer-specific sold count
         buyer_sold = int(buyer_sold_counts.get(name_up, 0))
         props["BUYER_SOLD_COUNT"] = buyer_sold
 
-        # MAO info (can be blank, but keys must exist)
+        # MAO keys (must exist even if blank)
         mao_tier = (mao_tier_by_county or {}).get(name_up, "") or ""
         mao_range = (mao_range_by_county or {}).get(name_up, "") or ""
         props["MAO_TIER"] = mao_tier
         props["MAO_RANGE"] = mao_range
+
+        # NEW: numeric MAO min/max for coloring in acquisitions
+        mn, mx = _parse_mao_range_to_min_max(mao_range)
+        props["MAO_MIN_PCT"] = mn if mn is not None else ""
+        props["MAO_MAX_PCT"] = mx if mx is not None else ""
 
         # -----------------------------
         # Popup HTML
@@ -98,7 +151,6 @@ def enrich_geojson_properties(
             f"<b>Total:</b> {total} &nbsp; <b>Close rate:</b> {close_rate_str}<br>",
         ]
 
-        # MAO (always useful; acquisitions emphasizes it more visually)
         if mao_tier or mao_range:
             label = (
                 f"{mao_tier} ({mao_range})"
@@ -110,11 +162,9 @@ def enrich_geojson_properties(
             else:
                 lines.append(f"<b>MAO Tier:</b> {label}<br>")
 
-        # Buyer-specific count (Dispo view only)
         if team_view_norm == "dispo" and buyer_active:
             lines.append(f"<b>{buyer_choice} (Sold):</b> {buyer_sold}<br>")
 
-        # Top buyers block (Dispo view only)
         if team_view_norm == "dispo":
             top_list = (top_buyers_dict.get(name_up, []) or [])[: int(top_n_buyers)]
             if top_list:
@@ -125,7 +175,6 @@ def enrich_geojson_properties(
                     lines.append(f"<li>{b} — {int(c)}</li>")
                 lines.append("</ol></div>")
 
-        # Property list (both views)
         props_list = county_properties_view.get(name_up, [])
         if props_list:
             lines.append(
