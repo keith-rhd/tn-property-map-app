@@ -32,10 +32,11 @@ st.title("Closed RHD Properties Map")
 df = load_data()
 tiers = load_mao_tiers()
 
-# Load geojson once (cached). We'll also use it for adjacency.
+# Geo + adjacency (cached)
 tn_geo_for_adj = load_tn_geojson()
 adjacency = build_county_adjacency(tn_geo_for_adj)
 
+# Tier mappings
 mao_tier_by_county = {}
 mao_range_by_county = {}
 tier_counties = []
@@ -63,7 +64,6 @@ with col1:
     mode = st.radio("View", ["Sold", "Cut Loose", "Both"], index=0, horizontal=True)
 
 years_available = sorted([int(y) for y in df["Year"].dropna().unique().tolist()])
-
 with col3:
     year_choice = st.selectbox("Year", ["All years"] + years_available, index=0)
 
@@ -83,7 +83,6 @@ buyer_count_by_county = (
     .to_dict()
 )
 
-# For "touching counties": unique buyers across neighboring counties
 buyers_set_by_county = (
     df_sold_buyers[df_sold_buyers["Buyer_clean"] != ""]
     .groupby("County_clean_up")["Buyer_clean"]
@@ -93,8 +92,14 @@ buyers_set_by_county = (
 
 # -----------------------------
 # Acquisitions sidebar (MAO guidance + quick search + nearby buyers)
+# IMPORTANT: apply any pending dropdown update BEFORE creating the selectbox
 # -----------------------------
 if team_view == "Acquisitions":
+    if "acq_pending_county_title" in st.session_state:
+        # Safe: this runs before the widget is created (below)
+        st.session_state["acq_county_select"] = st.session_state["acq_pending_county_title"]
+        del st.session_state["acq_pending_county_title"]
+
     selected = st.session_state.get("acq_selected_county")
     if not selected:
         selected = all_county_options[0] if all_county_options else ""
@@ -127,10 +132,10 @@ if team_view == "Acquisitions":
         neighbor_breakdown=neighbor_breakdown,
     )
 
-    # If dropdown selection changed, sync session + rerun
+    # If dropdown changed selection, sync + rerun
     if chosen_key and chosen_key != selected:
         st.session_state["acq_selected_county"] = chosen_key
-        st.session_state["selected_county"] = chosen_key  # also drive below-map panel
+        st.session_state["selected_county"] = chosen_key
         st.rerun()
 
     st.sidebar.markdown("---")
@@ -188,7 +193,7 @@ if team_view == "Dispo":
     )
 
 # -----------------------------
-# County totals for sold/cut (used by map + details panel)
+# County totals for sold/cut
 # -----------------------------
 df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
 grp = df_conv.groupby("County_clean_up")
@@ -199,7 +204,7 @@ counties_for_health = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys
 health = compute_health_score(counties_for_health, sold_counts, cut_counts)
 
 # -----------------------------
-# Rankings table rows
+# Rankings
 # -----------------------------
 rows = []
 for c in deal_counties:
@@ -285,7 +290,7 @@ color_scheme = "mao" if team_view == "Acquisitions" else "activity"
 
 m = build_map(
     tn_geo,
-    team_view=team_view,  # harmless even if optional
+    team_view=team_view,
     mode=mode,
     buyer_active=buyer_active,
     buyer_choice=buyer_choice,
@@ -297,62 +302,52 @@ m = build_map(
 )
 
 # -----------------------------
-# Render map and capture clicks (robust)
+# Render map and capture clicks
 # -----------------------------
 map_state = st_folium(m, height=650, use_container_width=True)
 
 def _extract_clicked_county_name(state: dict) -> str | None:
-    """
-    streamlit-folium can return click info in different places depending on version / layer type.
-    We try a few common ones.
-    """
     if not isinstance(state, dict):
         return None
 
-    # 1) GeoJson click often shows up here
     lad = state.get("last_active_drawing")
     if isinstance(lad, dict):
         props = lad.get("properties", {})
         if isinstance(props, dict) and props.get("NAME"):
             return props.get("NAME")
 
-    # 2) Some versions use last_object_clicked
     loc = state.get("last_object_clicked")
     if isinstance(loc, dict):
         props = loc.get("properties", {})
         if isinstance(props, dict) and props.get("NAME"):
             return props.get("NAME")
 
-    # 3) Fallback: sometimes only lat/lng is available (no county name)
     return None
 
 clicked_name = _extract_clicked_county_name(map_state)
 clicked_key = str(clicked_name).strip().upper() if clicked_name else ""
 
-# Always store clicked county for the below-map panel (Dispo + Acq)
+# Always store clicked county for the below-map panel (both views)
 if clicked_key:
     st.session_state["selected_county"] = clicked_key
 
-# In Acquisitions view, clicking should ALSO drive:
-# - the sidebar dropdown selection
-# - the sidebar stats
-# - the below-map table
+# Acquisitions: clicking should update sidebar + below map
 if team_view == "Acquisitions" and clicked_key:
     prev_key = str(st.session_state.get("acq_selected_county", "")).strip().upper()
     if clicked_key != prev_key:
         st.session_state["acq_selected_county"] = clicked_key
         st.session_state["selected_county"] = clicked_key
 
-        # This is the key part: force the sidebar selectbox to update to match the click
-        st.session_state["acq_county_select"] = clicked_key.title()
+        # IMPORTANT: do NOT set acq_county_select directly here (widget already exists this run)
+        # Instead, set a pending value and apply it at the top of next run (before widget creation).
+        st.session_state["acq_pending_county_title"] = clicked_key.title()
 
         st.rerun()
+
 # -----------------------------
-# BELOW MAP: County details panel (this is what Dispo lost)
+# BELOW MAP: County details panel
 # -----------------------------
 selected_for_panel = st.session_state.get("selected_county")
-
-# If in Acquisitions and we have a dropdown selection, prefer that
 if team_view == "Acquisitions":
     selected_for_panel = st.session_state.get("acq_selected_county", selected_for_panel)
 
@@ -379,7 +374,7 @@ if selected_for_panel:
     d.metric("# Buyers", buyer_ct)
     e.metric("MAO", f"{mao_tier} ({mao_range})" if mao_tier != "—" or mao_range != "—" else "—")
 
-    # Dispo-only: show top buyers list
+    # Dispo-only: show top buyers
     if team_view == "Dispo":
         top_list = (top_buyers_dict.get(ckey, []) or [])[:10]
         if top_list:
@@ -390,9 +385,8 @@ if selected_for_panel:
                 hide_index=True,
             )
 
-    # Properties table in current view (this is what you want back)
+    # Properties table
     df_props = df_view[df_view["County_clean_up"] == ckey].copy()
-
     if not df_props.empty:
         show_cols = [C.address, C.city, C.status, C.buyer, C.date, C.sf_url]
         show_cols = [col for col in show_cols if col in df_props.columns]
