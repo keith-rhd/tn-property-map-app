@@ -297,31 +297,56 @@ m = build_map(
 )
 
 # -----------------------------
-# Render map and capture clicks
+# Render map and capture clicks (robust)
 # -----------------------------
 map_state = st_folium(m, height=650, use_container_width=True)
 
-clicked_name = None
-if isinstance(map_state, dict):
-    lad = map_state.get("last_active_drawing")
+def _extract_clicked_county_name(state: dict) -> str | None:
+    """
+    streamlit-folium can return click info in different places depending on version / layer type.
+    We try a few common ones.
+    """
+    if not isinstance(state, dict):
+        return None
+
+    # 1) GeoJson click often shows up here
+    lad = state.get("last_active_drawing")
     if isinstance(lad, dict):
         props = lad.get("properties", {})
-        if isinstance(props, dict):
-            clicked_name = props.get("NAME")
+        if isinstance(props, dict) and props.get("NAME"):
+            return props.get("NAME")
 
+    # 2) Some versions use last_object_clicked
+    loc = state.get("last_object_clicked")
+    if isinstance(loc, dict):
+        props = loc.get("properties", {})
+        if isinstance(props, dict) and props.get("NAME"):
+            return props.get("NAME")
+
+    # 3) Fallback: sometimes only lat/lng is available (no county name)
+    return None
+
+clicked_name = _extract_clicked_county_name(map_state)
 clicked_key = str(clicked_name).strip().upper() if clicked_name else ""
 
 # Always store clicked county for the below-map panel (Dispo + Acq)
 if clicked_key:
     st.session_state["selected_county"] = clicked_key
 
-# In Acquisitions view, clicking should also drive the sidebar selection
+# In Acquisitions view, clicking should ALSO drive:
+# - the sidebar dropdown selection
+# - the sidebar stats
+# - the below-map table
 if team_view == "Acquisitions" and clicked_key:
-    prev_key = st.session_state.get("acq_selected_county")
+    prev_key = str(st.session_state.get("acq_selected_county", "")).strip().upper()
     if clicked_key != prev_key:
         st.session_state["acq_selected_county"] = clicked_key
-        st.rerun()
+        st.session_state["selected_county"] = clicked_key
 
+        # This is the key part: force the sidebar selectbox to update to match the click
+        st.session_state["acq_county_select"] = clicked_key.title()
+
+        st.rerun()
 # -----------------------------
 # BELOW MAP: County details panel (this is what Dispo lost)
 # -----------------------------
