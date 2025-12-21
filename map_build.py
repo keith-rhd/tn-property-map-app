@@ -1,8 +1,10 @@
 import folium
+
 from colors import category_color, mao_color
 
 
 def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
+    """Bottom, centered legend."""
     if legend_mode == "mao":
         legend_html = f"""
 <div style="
@@ -23,19 +25,19 @@ def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
 ">
     <span style='display:flex; align-items:center; gap:6px;'>
         <div style="width:14px; height:14px; background:{mao_color(0.73)}; border:1px solid #000;"></div>
-        <b>A</b> 0.73–0.77
+        <b>A</b> (higher)
     </span>
     <span style='display:flex; align-items:center; gap:6px;'>
         <div style="width:14px; height:14px; background:{mao_color(0.68)}; border:1px solid #000;"></div>
-        <b>B</b> 0.68–0.72
+        <b>B</b>
     </span>
     <span style='display:flex; align-items:center; gap:6px;'>
         <div style="width:14px; height:14px; background:{mao_color(0.61)}; border:1px solid #000;"></div>
-        <b>C</b> 0.61–0.66
+        <b>C</b>
     </span>
     <span style='display:flex; align-items:center; gap:6px;'>
         <div style="width:14px; height:14px; background:{mao_color(0.53)}; border:1px solid #000;"></div>
-        <b>D</b> 0.53–0.58
+        <b>D</b> (lower)
     </span>
     <span style='display:flex; align-items:center; gap:6px;'>
         <div style="width:14px; height:14px; background:#FFFFFF; border:1px solid #000;"></div>
@@ -46,7 +48,6 @@ def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
         m.get_root().html.add_child(folium.Element(legend_html))
         return
 
-    # Default legend (activity)
     legend_html = f"""
 <div style="
     position: fixed;
@@ -87,6 +88,7 @@ def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
 def build_map(
     tn_geo: dict,
     *,
+    team_view: str,
     mode: str,
     buyer_active: bool,
     buyer_choice: str,
@@ -96,6 +98,7 @@ def build_map(
     tiles: str,
     color_scheme: str = "activity",  # "activity" or "mao"
 ):
+    """Build the Folium choropleth map."""
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom_start,
@@ -110,9 +113,8 @@ def build_map(
     )
 
     def style_function(feature):
-        p = feature["properties"]
+        p = feature.get("properties", {})
 
-        # MAO coloring (Acquisitions view)
         if color_scheme == "mao":
             mn = p.get("MAO_MIN_PCT", "")
             try:
@@ -125,35 +127,24 @@ def build_map(
 
             return {"fillColor": mao_color(mn_val), "color": "black", "weight": 0.5, "fillOpacity": 0.9}
 
-        # Default activity coloring
         if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
             return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
         v_for_color = p.get("BUYER_SOLD_COUNT", 0) if buyer_active else p.get("PROP_COUNT", 0)
         return {"fillColor": category_color(v_for_color, mode, buyer_active), "color": "black", "weight": 0.5, "fillOpacity": 0.9}
 
-    tooltip_fields = [
-        "NAME",
-        "SOLD_COUNT",
-        "CUT_COUNT",
-        "TOTAL_COUNT",
-        "CLOSE_RATE_STR",
-        "MAO_TIER",
-        "MAO_RANGE",
-    ]
-    tooltip_aliases = [
-        "County:",
-        "Sold:",
-        "Cut loose:",
-        "Total:",
-        "Close rate:",
-        "MAO Tier:",
-        "MAO Range:",
-    ]
+    team_view_norm = (team_view or "").strip().lower()
 
-    if buyer_active:
-        tooltip_fields.append("BUYER_SOLD_COUNT")
-        tooltip_aliases.append(f"{buyer_choice} (Sold):")
+    if color_scheme == "mao" or team_view_norm == "acquisitions":
+        tooltip_fields = ["NAME", "MAO_TIER", "MAO_RANGE", "BUYER_COUNT"]
+        tooltip_aliases = ["County:", "MAO Tier:", "MAO Range:", "# Buyers:"]
+    else:
+        tooltip_fields = ["NAME", "SOLD_COUNT", "CLOSE_RATE_STR"]
+        tooltip_aliases = ["County:", "Sold:", "Close rate:"]
+
+        if buyer_active:
+            tooltip_fields.append("BUYER_SOLD_COUNT")
+            tooltip_aliases.append(f"{buyer_choice} (Sold):")
 
     tooltip = folium.GeoJsonTooltip(fields=tooltip_fields, aliases=tooltip_aliases, localize=True, sticky=False)
 
