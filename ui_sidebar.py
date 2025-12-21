@@ -52,9 +52,9 @@ def render_overall_stats(*, year_choice, sold_total, cut_total, total_deals, tot
     st.sidebar.markdown("---")
 
 
-def render_acquisitions_guidance(*, county_choice: str, mao_tier: str, mao_range: str, note: str | None = None):
+def render_acquisitions_guidance(*, county_choice: str, mao_tier: str, mao_range: str, buyer_count: int):
     st.sidebar.markdown("## MAO guidance")
-    st.sidebar.caption("Select a county on the map, or use this dropdown.")
+    st.sidebar.caption("Click a county on the map to update this.")
 
     st.sidebar.markdown(
         f"""<div style="
@@ -65,19 +65,16 @@ def render_acquisitions_guidance(*, county_choice: str, mao_tier: str, mao_range
     ">
         <div style="margin-bottom:6px;"><b>County:</b> {county_choice}</div>
         <div style="margin-bottom:6px;"><b>MAO Tier:</b> {mao_tier}</div>
-        <div><b>MAO Range:</b> {mao_range}</div>
+        <div style="margin-bottom:6px;"><b>MAO Range:</b> {mao_range}</div>
+        <div><b># Buyers:</b> {buyer_count}</div>
     </div>""",
         unsafe_allow_html=True,
     )
-
-    if note:
-        st.sidebar.info(note)
 
 
 def render_rankings(rank_df: pd.DataFrame, *, default_rank_metric: str, rank_options: list[str]):
     st.sidebar.markdown("## County rankings")
 
-    # keep options that actually exist in the dataframe
     available = [c for c in rank_options if c in rank_df.columns]
     if not available:
         st.sidebar.warning("No ranking metrics available.")
