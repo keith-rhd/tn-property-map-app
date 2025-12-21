@@ -189,6 +189,11 @@ if team_view == "Dispo":
     )
 
 # -----------------------------
+# Build top buyers dict (used in Dispo sidebar + below-map panel metrics)
+# -----------------------------
+top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
+
+# -----------------------------
 # Dispo: Sidebar "Top buyers in selected county" (below overall stats)
 # -----------------------------
 if team_view == "Dispo":
@@ -273,11 +278,6 @@ if buyer_active:
         .size()
         .to_dict()
     )
-
-# -----------------------------
-# Build top buyers dict (used in Dispo sidebar + below-map panel metrics)
-# -----------------------------
-top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
 # -----------------------------
 # Enrich geojson for map tooltips/popups
