@@ -189,6 +189,25 @@ if team_view == "Dispo":
     )
 
 # -----------------------------
+# Dispo: Sidebar "Top buyers in selected county" (below overall stats)
+# -----------------------------
+if team_view == "Dispo":
+    sel_county = str(st.session_state.get("selected_county", "")).strip().upper()
+    if sel_county:
+        top_list = (top_buyers_dict.get(sel_county, []) or [])[:10]
+        st.sidebar.markdown("## Top buyers in selected county")
+        st.sidebar.caption(f"County: **{sel_county.title()}** (sold only)")
+        if top_list:
+            st.sidebar.dataframe(
+                pd.DataFrame(top_list, columns=["Buyer", "Sold deals"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.sidebar.info("No sold buyers found for this county yet.")
+        st.sidebar.markdown("---")
+
+# -----------------------------
 # County totals for sold/cut
 # -----------------------------
 df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
@@ -346,25 +365,6 @@ if team_view == "Acquisitions" and clicked_key:
         st.session_state["selected_county"] = clicked_key
         st.session_state["acq_pending_county_title"] = clicked_key.title()
         st.rerun()
-
-# -----------------------------
-# Dispo: Sidebar "Top buyers in selected county" (below overall stats)
-# -----------------------------
-if team_view == "Dispo":
-    sel_county = str(st.session_state.get("selected_county", "")).strip().upper()
-    if sel_county:
-        top_list = (top_buyers_dict.get(sel_county, []) or [])[:10]
-        st.sidebar.markdown("## Top buyers in selected county")
-        st.sidebar.caption(f"County: **{sel_county.title()}** (sold only)")
-        if top_list:
-            st.sidebar.dataframe(
-                pd.DataFrame(top_list, columns=["Buyer", "Sold deals"]),
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.sidebar.info("No sold buyers found for this county yet.")
-        st.sidebar.markdown("---")
 
 # -----------------------------
 # BELOW MAP: County details panel
