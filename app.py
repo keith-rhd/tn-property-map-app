@@ -57,8 +57,10 @@ st.session_state["team_view"] = team_view
 
 # -----------------------------
 # Controls row (top)
+# - Dispo: Mode / Year / Buyer
+# - Acq:  Mode / Year (Buyer still shown disabled for consistency)
 # -----------------------------
-col1, col3, col4, col5 = st.columns([1.1, 1.6, 1.7, 0.9], gap="small")
+col1, col3, col4 = st.columns([1.1, 1.6, 1.7], gap="small")
 
 with col1:
     mode = st.radio("View", ["Sold", "Cut Loose", "Both"], index=0, horizontal=True)
@@ -96,7 +98,6 @@ buyers_set_by_county = (
 # -----------------------------
 if team_view == "Acquisitions":
     if "acq_pending_county_title" in st.session_state:
-        # Safe: this runs before the widget is created (below)
         st.session_state["acq_county_select"] = st.session_state["acq_pending_county_title"]
         del st.session_state["acq_pending_county_title"]
 
@@ -132,7 +133,6 @@ if team_view == "Acquisitions":
         neighbor_breakdown=neighbor_breakdown,
     )
 
-    # If dropdown changed selection, sync + rerun
     if chosen_key and chosen_key != selected:
         st.session_state["acq_selected_county"] = chosen_key
         st.session_state["selected_county"] = chosen_key
@@ -153,20 +153,16 @@ if team_view == "Dispo":
             buyer_choice = "All buyers"
             st.selectbox("Buyer", ["All buyers"], disabled=True)
 
-    with col5:
-        TOP_N = st.number_input("Top buyers", min_value=3, max_value=15, value=3)
-
     buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
 else:
     with col4:
         buyer_choice = "All buyers"
         st.selectbox("Buyer", ["All buyers"], disabled=True)
 
-    with col5:
-        TOP_N = 3
-        st.number_input("Top buyers", min_value=3, max_value=15, value=3, disabled=True)
-
     buyer_active = False
+
+# We don't need a "Top buyers" control anymore; keep a consistent internal top-N for displays
+TOP_N = 10
 
 sel = Selection(
     mode=mode,
@@ -260,11 +256,15 @@ if buyer_active:
     )
 
 # -----------------------------
+# Build top buyers dict (used in Dispo sidebar + below-map panel metrics)
+# -----------------------------
+top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
+
+# -----------------------------
 # Enrich geojson for map tooltips/popups
 # -----------------------------
 county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 county_properties_view = build_county_properties_view(df_view)
-top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
 tn_geo = load_tn_geojson()
 
@@ -306,6 +306,7 @@ m = build_map(
 # -----------------------------
 map_state = st_folium(m, height=650, use_container_width=True)
 
+
 def _extract_clicked_county_name(state: dict) -> str | None:
     if not isinstance(state, dict):
         return None
@@ -324,12 +325,18 @@ def _extract_clicked_county_name(state: dict) -> str | None:
 
     return None
 
+
 clicked_name = _extract_clicked_county_name(map_state)
 clicked_key = str(clicked_name).strip().upper() if clicked_name else ""
 
-# Always store clicked county for the below-map panel (both views)
+# Always store clicked county (both views)
 if clicked_key:
+    prev_selected = str(st.session_state.get("selected_county", "")).strip().upper()
     st.session_state["selected_county"] = clicked_key
+
+    # Dispo: rerun immediately so sidebar updates on click
+    if team_view == "Dispo" and clicked_key != prev_selected:
+        st.rerun()
 
 # Acquisitions: clicking should update sidebar + below map
 if team_view == "Acquisitions" and clicked_key:
@@ -337,12 +344,27 @@ if team_view == "Acquisitions" and clicked_key:
     if clicked_key != prev_key:
         st.session_state["acq_selected_county"] = clicked_key
         st.session_state["selected_county"] = clicked_key
-
-        # IMPORTANT: do NOT set acq_county_select directly here (widget already exists this run)
-        # Instead, set a pending value and apply it at the top of next run (before widget creation).
         st.session_state["acq_pending_county_title"] = clicked_key.title()
-
         st.rerun()
+
+# -----------------------------
+# Dispo: Sidebar "Top buyers in selected county" (below overall stats)
+# -----------------------------
+if team_view == "Dispo":
+    sel_county = str(st.session_state.get("selected_county", "")).strip().upper()
+    if sel_county:
+        top_list = (top_buyers_dict.get(sel_county, []) or [])[:10]
+        st.sidebar.markdown("## Top buyers in selected county")
+        st.sidebar.caption(f"County: **{sel_county.title()}** (sold only)")
+        if top_list:
+            st.sidebar.dataframe(
+                pd.DataFrame(top_list, columns=["Buyer", "Sold deals"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.sidebar.info("No sold buyers found for this county yet.")
+        st.sidebar.markdown("---")
 
 # -----------------------------
 # BELOW MAP: County details panel
@@ -373,17 +395,6 @@ if selected_for_panel:
     c.metric("Close rate", close_rate_str)
     d.metric("# Buyers", buyer_ct)
     e.metric("MAO", f"{mao_tier} ({mao_range})" if mao_tier != "—" or mao_range != "—" else "—")
-
-    # Dispo-only: show top buyers
-    if team_view == "Dispo":
-        top_list = (top_buyers_dict.get(ckey, []) or [])[:10]
-        if top_list:
-            st.markdown("#### Top buyers (sold)")
-            st.dataframe(
-                pd.DataFrame(top_list, columns=["Buyer", "Sold deals"]),
-                use_container_width=True,
-                hide_index=True,
-            )
 
     # Properties table
     df_props = df_view[df_view["County_clean_up"] == ckey].copy()
