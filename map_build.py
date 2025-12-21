@@ -1,5 +1,5 @@
+# map_build.py
 import folium
-
 from colors import category_color, mao_color
 
 
@@ -88,7 +88,8 @@ def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
 def build_map(
     tn_geo: dict,
     *,
-    team_view: str,
+    # Make this OPTIONAL to avoid TypeError when app.py doesn't pass it
+    team_view: str | None = None,
     mode: str,
     buyer_active: bool,
     buyer_choice: str,
@@ -98,7 +99,12 @@ def build_map(
     tiles: str,
     color_scheme: str = "activity",  # "activity" or "mao"
 ):
-    """Build the Folium choropleth map."""
+    """Build the Folium choropleth map.
+
+    Backward compatible: some app.py versions pass team_view, some don't.
+    """
+    team_view_norm = (team_view or "").strip().lower()
+
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom_start,
@@ -115,6 +121,7 @@ def build_map(
     def style_function(feature):
         p = feature.get("properties", {})
 
+        # MAO coloring (Acquisitions view)
         if color_scheme == "mao":
             mn = p.get("MAO_MIN_PCT", "")
             try:
@@ -127,21 +134,20 @@ def build_map(
 
             return {"fillColor": mao_color(mn_val), "color": "black", "weight": 0.5, "fillOpacity": 0.9}
 
+        # Buyer-filter mode: blank counties with 0 for that buyer
         if buyer_active and p.get("BUYER_SOLD_COUNT", 0) == 0:
             return {"fillColor": "#FFFFFF", "color": "black", "weight": 0.5, "fillOpacity": 0.15}
 
         v_for_color = p.get("BUYER_SOLD_COUNT", 0) if buyer_active else p.get("PROP_COUNT", 0)
         return {"fillColor": category_color(v_for_color, mode, buyer_active), "color": "black", "weight": 0.5, "fillOpacity": 0.9}
 
-    team_view_norm = (team_view or "").strip().lower()
-
+    # Tooltip: short, role-based
     if color_scheme == "mao" or team_view_norm == "acquisitions":
         tooltip_fields = ["NAME", "MAO_TIER", "MAO_RANGE", "BUYER_COUNT"]
         tooltip_aliases = ["County:", "MAO Tier:", "MAO Range:", "# Buyers:"]
     else:
         tooltip_fields = ["NAME", "SOLD_COUNT", "CLOSE_RATE_STR"]
         tooltip_aliases = ["County:", "Sold:", "Close rate:"]
-
         if buyer_active:
             tooltip_fields.append("BUYER_SOLD_COUNT")
             tooltip_aliases.append(f"{buyer_choice} (Sold):")
