@@ -38,10 +38,15 @@ tiers = load_mao_tiers()
 # Build MAO dicts from TIERS (not from df)
 mao_tier_by_county = {}
 mao_range_by_county = {}
+tier_counties = []
 
 if tiers is not None and not tiers.empty:
     mao_tier_by_county = dict(zip(tiers["County_clean_up"], tiers["MAO_Tier"]))
     mao_range_by_county = dict(zip(tiers["County_clean_up"], tiers["MAO_Range_Str"]))
+    tier_counties = sorted(tiers["County_clean_up"].dropna().unique().tolist())
+
+deal_counties = sorted(df["County_clean_up"].dropna().unique().tolist())
+all_county_options = tier_counties if tier_counties else deal_counties
 
 # -----------------------------
 # Sidebar: Team view toggle
@@ -64,14 +69,32 @@ with col3:
 
 fd = prepare_filtered_data(df, year_choice)
 
-# Buyer counts per county (used in Acquisitions sidebar)
-# (Unique buyers on SOLD deals, year-filtered)
+# Buyer counts per county (Acq sidebar wants this)
 buyer_count_by_county = (
     fd.df_time_sold[fd.df_time_sold["Buyer_clean"].astype(str).str.strip() != ""]
     .groupby("County_clean_up")["Buyer_clean"]
     .nunique()
     .to_dict()
 )
+
+# -----------------------------
+# Sidebar: Acquisitions MAO guidance at TOP (above rankings)
+# Uses last clicked county in session state.
+# -----------------------------
+if team_view == "Acquisitions":
+    selected = st.session_state.get("acq_selected_county")
+    if not selected:
+        selected = all_county_options[0] if all_county_options else ""
+
+    buyer_count = int(buyer_count_by_county.get(selected, 0))
+
+    render_acquisitions_guidance(
+        county_choice=selected.title() if selected else "—",
+        mao_tier=str(mao_tier_by_county.get(selected, "")) or "—",
+        mao_range=str(mao_range_by_county.get(selected, "")) or "—",
+        buyer_count=buyer_count,
+    )
+    st.sidebar.markdown("---")
 
 # -----------------------------
 # Buyer controls (Dispo view only)
@@ -133,16 +156,14 @@ grp = df_conv.groupby("County_clean_up")
 sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum()).to_dict()
 cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to_dict()
 
-counties = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys())))
-health = compute_health_score(counties, sold_counts, cut_counts)
+counties_for_health = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys())))
+health = compute_health_score(counties_for_health, sold_counts, cut_counts)
 
 # -----------------------------
 # Rankings table rows
 # -----------------------------
 rows = []
-all_counties = sorted(df["County_clean_up"].dropna().unique().tolist())
-
-for c in all_counties:
+for c in deal_counties:
     sold = int(sold_counts.get(c, 0))
     cut = int(cut_counts.get(c, 0))
     total = sold + cut
@@ -169,6 +190,7 @@ for c in all_counties:
 
 rank_df = pd.DataFrame(rows)
 
+# Rankings stay the same; in Acq view they will now appear BELOW MAO guidance
 if team_view == "Dispo":
     render_rankings(
         rank_df[["County", "Health score", "Buyer count"]],
@@ -247,7 +269,6 @@ m = build_map(
 # -----------------------------
 map_state = st_folium(m, height=650, use_container_width=True)
 
-# If the user clicked a county, store it and rerun so sidebar updates immediately
 clicked_name = None
 if isinstance(map_state, dict):
     lad = map_state.get("last_active_drawing")
@@ -259,35 +280,6 @@ if isinstance(map_state, dict):
 if team_view == "Acquisitions" and clicked_name:
     clicked_key = str(clicked_name).strip().upper()
     prev_key = st.session_state.get("acq_selected_county")
-
     if clicked_key and clicked_key != prev_key:
         st.session_state["acq_selected_county"] = clicked_key
         st.rerun()
-
-# -----------------------------
-# Acquisitions sidebar: auto-updating MAO guidance (AFTER map click)
-# We render it at the top normally, but to keep it truly "auto",
-# we render it here too (and it will show immediately after rerun).
-# -----------------------------
-if team_view == "Acquisitions":
-    # Pick selected county: clicked (stored) > first from tiers > first from df
-    if tiers is not None and not tiers.empty:
-        county_options = sorted(tiers["County_clean_up"].dropna().unique().tolist())
-    else:
-        county_options = sorted(df["County_clean_up"].dropna().unique().tolist())
-
-    selected = st.session_state.get("acq_selected_county")
-    if not selected:
-        selected = county_options[0] if county_options else ""
-
-    buyer_count = int(buyer_count_by_county.get(selected, 0))
-
-    # Put this at the TOP of the sidebar
-    st.sidebar.empty()  # no-op placeholder; keeps sidebar calls valid
-    st.sidebar.markdown("## MAO guidance")
-    render_acquisitions_guidance(
-        county_choice=selected.title(),
-        mao_tier=str(mao_tier_by_county.get(selected, "")) or "—",
-        mao_range=str(mao_range_by_county.get(selected, "")) or "—",
-        buyer_count=buyer_count,
-    )
