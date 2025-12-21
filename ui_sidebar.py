@@ -14,11 +14,18 @@ def render_team_view_toggle(default: str = "Dispo") -> str:
         index=index,
         label_visibility="collapsed",
     )
-    st.sidebar.markdown("---")
     return team_view
 
 
-def render_overall_stats(*, year_choice, sold_total, cut_total, total_deals, total_buyers, close_rate_str):
+def render_overall_stats(
+    *,
+    year_choice,
+    sold_total: int,
+    cut_total: int,
+    total_deals: int,
+    total_buyers: int,
+    close_rate_str: str,
+):
     st.sidebar.markdown("## Overall stats")
     st.sidebar.caption(f"Year: **{year_choice}**")
 
@@ -52,10 +59,43 @@ def render_overall_stats(*, year_choice, sold_total, cut_total, total_deals, tot
     st.sidebar.markdown("---")
 
 
-def render_acquisitions_guidance(*, county_choice: str, mao_tier: str, mao_range: str, buyer_count: int):
+def render_acquisitions_guidance(
+    *,
+    county_options: list[str],
+    selected_county_key: str,
+    mao_tier: str,
+    mao_range: str,
+    buyer_count: int,
+    neighbor_unique_buyers: int,
+    neighbor_breakdown: pd.DataFrame,
+) -> str:
+    """
+    Acquisitions sidebar block.
+    Returns the newly selected county (UPPERCASE key).
+    """
     st.sidebar.markdown("## MAO guidance")
-    st.sidebar.caption("Click a county on the map to update this.")
 
+    # Dropdown quick search
+    # We display Title Case, but store as UPPERCASE keys.
+    options_title = [c.title() for c in county_options]
+    key_to_title = {c.upper(): c.title() for c in county_options}
+    title_to_key = {c.title(): c.upper() for c in county_options}
+
+    default_title = key_to_title.get(selected_county_key.upper(), options_title[0] if options_title else "—")
+
+    chosen_title = st.sidebar.selectbox(
+        "County quick search",
+        options_title if options_title else ["—"],
+        index=(options_title.index(default_title) if options_title and default_title in options_title else 0),
+        key="acq_county_select",
+        help="Use this if you can’t easily click the county on the map.",
+    )
+
+    chosen_key = title_to_key.get(chosen_title, selected_county_key.upper())
+
+    st.sidebar.caption("Tip: you can also click a county on the map to update this.")
+
+    # Main card
     st.sidebar.markdown(
         f"""<div style="
         background: rgba(255,255,255,0.06);
@@ -63,13 +103,25 @@ def render_acquisitions_guidance(*, county_choice: str, mao_tier: str, mao_range
         border-radius: 10px;
         padding: 10px 12px;
     ">
-        <div style="margin-bottom:6px;"><b>County:</b> {county_choice}</div>
+        <div style="margin-bottom:6px;"><b>County:</b> {chosen_title}</div>
         <div style="margin-bottom:6px;"><b>MAO Tier:</b> {mao_tier}</div>
         <div style="margin-bottom:6px;"><b>MAO Range:</b> {mao_range}</div>
-        <div><b># Buyers:</b> {buyer_count}</div>
+        <div style="margin-bottom:6px;"><b># Buyers (this county):</b> {buyer_count}</div>
+        <div><b># Buyers (touching counties):</b> {neighbor_unique_buyers}</div>
     </div>""",
         unsafe_allow_html=True,
     )
+
+    # Breakdown table (small + helpful)
+    if neighbor_breakdown is not None and not neighbor_breakdown.empty:
+        st.sidebar.markdown("#### Nearby county buyer breakdown")
+        st.sidebar.dataframe(
+            neighbor_breakdown,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    return chosen_key
 
 
 def render_rankings(rank_df: pd.DataFrame, *, default_rank_metric: str, rank_options: list[str]):
