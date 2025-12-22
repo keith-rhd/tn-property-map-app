@@ -63,13 +63,11 @@ st.session_state["team_view"] = team_view
 # ------------------------------------------------------------
 DEFAULT_COUNTY_KEY = "DAVIDSON"
 
-# If DAVIDSON isn't in our options for some reason, fall back safely
 fallback_key = DEFAULT_COUNTY_KEY
 if all_county_options:
     if DEFAULT_COUNTY_KEY not in all_county_options:
         fallback_key = all_county_options[0]
 
-# Set defaults once per session if missing/blank
 if not str(st.session_state.get("selected_county", "")).strip():
     st.session_state["selected_county"] = fallback_key
 
@@ -115,7 +113,7 @@ buyers_set_by_county = (
     .to_dict()
 )
 
-# Build this ONCE and early so sidebar can use it (Dispo)
+# Build once and early
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
 # ------------------------------------------------------------
@@ -156,7 +154,6 @@ if team_view == "Acquisitions":
         neighbor_breakdown=neighbor_breakdown,
     )
 
-    # dropdown changed selection
     if chosen_key and chosen_key != selected:
         st.session_state["acq_selected_county"] = chosen_key
         st.session_state["selected_county"] = chosen_key
@@ -184,7 +181,6 @@ else:
         st.selectbox("Buyer", ["All buyers"], disabled=True)
     buyer_active = False
 
-# We removed the "Top buyers" control; keep a consistent N internally where needed
 TOP_N = 10
 
 sel = Selection(
@@ -210,6 +206,29 @@ if team_view == "Dispo":
         total_buyers=stats["total_buyers"],
         close_rate_str=stats["close_rate_str"],
     )
+
+    # Dispo county quick search (defaults to Davidson)
+    options_title = [c.title() for c in all_county_options]
+    title_to_key = {c.title(): c.upper() for c in all_county_options}
+    key_to_title = {c.upper(): c.title() for c in all_county_options}
+
+    current_key = str(st.session_state.get("selected_county", fallback_key)).strip().upper()
+    current_title = key_to_title.get(current_key, fallback_key.title())
+
+    chosen_title = st.sidebar.selectbox(
+        "County quick search",
+        options_title if options_title else ["—"],
+        index=(options_title.index(current_title) if options_title and current_title in options_title else 0),
+        key="dispo_county_select",
+        help="Use this if you can’t easily click the county on the map.",
+    )
+    chosen_key = title_to_key.get(chosen_title, current_key)
+
+    if chosen_key != current_key:
+        st.session_state["selected_county"] = chosen_key
+        st.rerun()
+
+    st.sidebar.markdown("---")
 
 # ------------------------------------------------------------
 # Sold/Cut counts by county (for map + details)
@@ -373,6 +392,7 @@ if clicked_key:
 
     # Dispo: rerun so sidebar updates immediately when clicking a county
     if team_view == "Dispo" and clicked_key != prev_selected:
+        # keep dropdown in sync (next run will render using selected_county)
         st.rerun()
 
 # Acquisitions: clicking should update sidebar + below-map
