@@ -188,12 +188,11 @@ sel = Selection(
 df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
 
 # -----------------------------
-# Dispo: County quick lookup (robust sync)
-# - Map clicks can set the dropdown
-# - But if the user changes the dropdown, we never overwrite it
+# Dispo: County quick lookup (Acq-style format)
 # -----------------------------
 if team_view == "Dispo":
-    st.sidebar.markdown("## County quick lookup")
+    st.sidebar.markdown("## County stats")
+    st.sidebar.caption("County quick search")
 
     placeholder = "— Select a county —"
     county_titles = [c.title() for c in all_county_options]
@@ -206,57 +205,82 @@ if team_view == "Dispo":
     prev_dd = st.session_state.get("_dispo_prev_county_lookup", curr_dd)
     user_changed_dropdown = curr_dd != prev_dd
 
-    # Only sync dropdown from map if:
-    # 1) the map was the last source AND
-    # 2) the user did NOT just change the dropdown in this rerun
+    # Only auto-sync dropdown from map if the map was last source AND user didn't just change dropdown
     if st.session_state.get("county_source") == "map" and not user_changed_dropdown:
         sel_key = str(st.session_state.get("selected_county", "")).strip().upper()
         if sel_key and sel_key in key_to_title:
             st.session_state["dispo_county_lookup"] = key_to_title[sel_key]
 
-    # Ensure key exists for the widget
     st.session_state.setdefault("dispo_county_lookup", placeholder)
 
     chosen_title = st.sidebar.selectbox(
-        "County",
+        "County quick search",
         options_title,
         index=options_title.index(st.session_state["dispo_county_lookup"])
         if st.session_state["dispo_county_lookup"] in options_title
         else 0,
         key="dispo_county_lookup",
-        help="Click a county on the map OR use this dropdown to see county stats.",
+        label_visibility="collapsed",
+        help="Use this if you can’t easily click the county on the map.",
     )
 
-    # Persist "previous" value for next rerun (used to detect user changes)
+    # Persist previous value for next rerun
     st.session_state["_dispo_prev_county_lookup"] = st.session_state.get("dispo_county_lookup", placeholder)
 
+    st.sidebar.caption("Tip: you can also click a county on the map to update this.")
+
     if chosen_title == placeholder:
-        st.sidebar.caption("Select a county to see county stats here.")
+        st.sidebar.info("Select a county to see Dispo stats here.")
         st.sidebar.markdown("---")
     else:
         new_key = title_to_key.get(chosen_title, "").strip().upper()
         prev_key = str(st.session_state.get("selected_county", "")).strip().upper()
 
-        # If dropdown changed county, make it the source of truth
+        # If dropdown changed county, make it the source of truth and rerun
         if new_key and new_key != prev_key:
             st.session_state["selected_county"] = new_key
             st.session_state["county_source"] = "dropdown"
             st.rerun()
 
+        # County scope data (already filtered by year + view filters via fd)
         sold_scope = fd.df_time_sold[fd.df_time_sold["County_clean_up"] == new_key]
         cut_scope = fd.df_time_cut[fd.df_time_cut["County_clean_up"] == new_key]
         cstats = compute_overall_stats(sold_scope, cut_scope)
 
-        render_overall_stats(
-            title="County stats",
-            scope_caption=f"County: **{chosen_title}**",
-            year_choice=year_choice,
-            sold_total=cstats["sold_total"],
-            cut_total=cstats["cut_total"],
-            total_deals=cstats["total_deals"],
-            total_buyers=cstats["total_buyers"],
-            close_rate_str=cstats["close_rate_str"],
+        sold_ct = int(cstats["sold_total"])
+        cut_ct = int(cstats["cut_total"])
+        total_ct = int(cstats["total_deals"])
+        buyer_ct = int(cstats["total_buyers"])
+        close_rate_str = str(cstats["close_rate_str"])
+
+        # Health score for this county using your existing function
+        hs_dict = compute_health_score(
+            [new_key],
+            {new_key: sold_ct},
+            {new_key: cut_ct},
         )
+        health_score = float(hs_dict.get(new_key, 0.0))
+
+        # Acq-style card
+        st.sidebar.markdown(
+            f"""<div style="
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.14);
+            border-radius: 10px;
+            padding: 10px 12px;
+        ">
+            <div style="margin-bottom:6px;"><b>County:</b> {chosen_title}</div>
+            <div style="margin-bottom:6px;"><b>Health score:</b> {health_score:.3f}</div>
+            <div style="margin-bottom:6px;"><b>Sold:</b> {sold_ct}</div>
+            <div style="margin-bottom:6px;"><b>Cut loose:</b> {cut_ct}</div>
+            <div style="margin-bottom:6px;"><b>Total deals:</b> {total_ct}</div>
+            <div style="margin-bottom:6px;"><b># Buyers:</b> {buyer_ct}</div>
+            <div><b>Close rate:</b> {close_rate_str}</div>
+        </div>""",
+            unsafe_allow_html=True,
+        )
+
+        st.sidebar.markdown("---")
 
 # -----------------------------
 # Build top buyers dict (sold only)
