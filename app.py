@@ -252,15 +252,7 @@ if team_view == "Dispo":
         total_ct = int(cstats["total_deals"])
         buyer_ct = int(cstats["total_buyers"])
         close_rate_str = str(cstats["close_rate_str"])
-
-        # Health score for this county using your existing function
-        hs_dict = compute_health_score(
-            [new_key],
-            {new_key: sold_ct},
-            {new_key: cut_ct},
-        )
-        health_score = float(hs_dict.get(new_key, 0.0))
-
+        
         # Acq-style card
         st.sidebar.markdown(
             f"""<div style="
@@ -270,7 +262,6 @@ if team_view == "Dispo":
             padding: 10px 12px;
         ">
             <div style="margin-bottom:6px;"><b>County:</b> {chosen_title}</div>
-            <div style="margin-bottom:6px;"><b>Health score:</b> {health_score:.3f}</div>
             <div style="margin-bottom:6px;"><b>Sold:</b> {sold_ct}</div>
             <div style="margin-bottom:6px;"><b>Cut loose:</b> {cut_ct}</div>
             <div style="margin-bottom:6px;"><b>Total deals:</b> {total_ct}</div>
