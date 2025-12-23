@@ -26,7 +26,6 @@ from enrich import (
 )
 from map_build import build_map
 
-
 st.set_page_config(**DEFAULT_PAGE)
 st.title("Closed RHD Properties Map")
 
@@ -58,22 +57,44 @@ st.session_state["team_view"] = team_view
 
 # -----------------------------
 # Controls row (top)
+# - Dispo: Mode / Year / Buyer
+# - Acq:  Mode / Year (Buyer still shown disabled for consistency)
 # -----------------------------
-col1, col2, col3, col4 = st.columns([1.2, 1.0, 1.0, 1.6], gap="small")
+col1, col3, col4 = st.columns([1.1, 1.6, 1.7], gap="small")
 
 with col1:
     mode = st.radio("View", ["Sold", "Cut Loose", "Both"], index=0, horizontal=True)
 
-with col2:
-    TOP_N = st.selectbox("Top buyers", [5, 10, 15, 20], index=1)
-
+years_available = sorted([int(y) for y in df["Year"].dropna().unique().tolist()])
 with col3:
-    years = sorted([y for y in df[C.date].dropna().dt.year.unique().tolist() if pd.notna(y)])
-    year_labels = ["All years"] + [str(y) for y in years]
-    year_choice = st.selectbox("Year", year_labels, index=0)
+    year_choice = st.selectbox("Year", ["All years"] + years_available, index=0)
+
+fd = prepare_filtered_data(df, year_choice)
+
+# Buyers per county (sold only)
+df_sold_buyers = fd.df_time_sold.copy()
+if "Buyer_clean" in df_sold_buyers.columns:
+    df_sold_buyers["Buyer_clean"] = df_sold_buyers["Buyer_clean"].astype(str).str.strip()
+else:
+    df_sold_buyers["Buyer_clean"] = ""
+
+buyer_count_by_county = (
+    df_sold_buyers[df_sold_buyers["Buyer_clean"] != ""]
+    .groupby("County_clean_up")["Buyer_clean"]
+    .nunique()
+    .to_dict()
+)
+
+buyers_set_by_county = (
+    df_sold_buyers[df_sold_buyers["Buyer_clean"] != ""]
+    .groupby("County_clean_up")["Buyer_clean"]
+    .apply(lambda s: set(s.dropna().tolist()))
+    .to_dict()
+)
 
 # -----------------------------
-# Acquisition selectbox
+# Acquisitions sidebar (MAO guidance + quick search + nearby buyers)
+# IMPORTANT: apply any pending dropdown update BEFORE creating the selectbox
 # -----------------------------
 if team_view == "Acquisitions":
     if "acq_pending_county_title" in st.session_state:
@@ -86,17 +107,7 @@ if team_view == "Acquisitions":
 
     selected = str(selected).strip().upper()
 
-    # Buyer count in selected county (sold-only)
-    df_sold_all = df[df["Status_norm"] == "sold"].copy()
-    buyer_count_by_county = df_sold_all.groupby("County_clean_up")["Buyer_clean"].nunique().to_dict()
     buyer_count = int(buyer_count_by_county.get(selected, 0))
-
-    # Neighbor buyers (touching counties)
-    buyers_set_by_county = (
-        df_sold_all.groupby("County_clean_up")["Buyer_clean"]
-        .apply(lambda s: set(x for x in s.dropna().tolist() if str(x).strip()))
-        .to_dict()
-    )
 
     neighbors = adjacency.get(selected, [])
     neighbor_buyers_union = set()
@@ -110,7 +121,7 @@ if team_view == "Acquisitions":
 
     neighbor_breakdown = pd.DataFrame(neighbor_rows)
     if not neighbor_breakdown.empty:
-        neighbor_breakdown = neighbor_breakdown.sort_values("# Buyers", ascending=False)
+        neighbor_breakdown = neighbor_breakdown.sort_values("# Buyers", ascending=False).head(10)
 
     chosen_key = render_acquisitions_guidance(
         county_options=all_county_options,
@@ -130,21 +141,8 @@ if team_view == "Acquisitions":
     st.sidebar.markdown("---")
 
 # -----------------------------
-# Build selection + filtered data
+# Buyer controls (Dispo view only)
 # -----------------------------
-buyer_choice = st.session_state.get("buyer_choice", "All buyers") if team_view == "Dispo" else "All buyers"
-
-sel = Selection(
-    mode=mode,
-    year_choice=str(year_choice),
-    buyer_choice=str(buyer_choice),
-    buyer_active=bool(team_view == "Dispo" and buyer_choice != "All buyers" and mode in ["Sold", "Both"]),
-    top_n=int(TOP_N),
-)
-
-fd = prepare_filtered_data(df, sel)
-
-# Buyer dropdown (Dispo view only)
 if team_view == "Dispo":
     with col4:
         if mode in ["Sold", "Both"]:
@@ -156,63 +154,32 @@ if team_view == "Dispo":
             st.selectbox("Buyer", ["All buyers"], disabled=True)
 
     buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
+else:
+    with col4:
+        buyer_choice = "All buyers"
+        st.selectbox("Buyer", ["All buyers"], disabled=True)
 
-    sel = Selection(
-        mode=mode,
-        year_choice=str(year_choice),
-        buyer_choice=str(buyer_choice),
-        buyer_active=bool(buyer_active),
-        top_n=int(TOP_N),
-    )
-    fd = prepare_filtered_data(df, sel)
+    buyer_active = False
+
+# We don't need a "Top buyers" control anymore; keep a consistent internal top-N for displays
+TOP_N = 10
+
+sel = Selection(
+    mode=mode,
+    year_choice=str(year_choice),
+    buyer_choice=buyer_choice,
+    buyer_active=buyer_active,
+    top_n=int(TOP_N),
+)
 
 df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
 
 # -----------------------------
-# Dispo stats (overall OR county scope)
+# Overall stats (Dispo only)
 # -----------------------------
 if team_view == "Dispo":
-    clicked_or_selected = str(st.session_state.get("selected_county", "")).strip().upper()
-
-    dispo_option_titles = ["Overall (all counties)"] + [c.title() for c in all_county_options]
-    title_to_key = {c.title(): c.upper() for c in all_county_options}
-
-    # If user clicked a county on the map, sync the dropdown to it.
-    # If nothing selected, default to Overall.
-    if clicked_or_selected and clicked_or_selected in set([c.upper() for c in all_county_options]):
-        st.session_state["dispo_stats_scope"] = clicked_or_selected.title()
-    else:
-        st.session_state.setdefault("dispo_stats_scope", "Overall (all counties)")
-
-    chosen_title = st.sidebar.selectbox(
-        "County quick search (stats)",
-        dispo_option_titles,
-        index=dispo_option_titles.index(st.session_state.get("dispo_stats_scope", "Overall (all counties)"))
-        if st.session_state.get("dispo_stats_scope", "Overall (all counties)") in dispo_option_titles
-        else 0,
-        key="dispo_stats_scope",
-        help="Click a county on the map OR use this dropdown to view county-level Dispo stats. Choose Overall to go back.",
-    )
-
-    if chosen_title == "Overall (all counties)":
-        # Clear county selection so other county-only panels hide
-        st.session_state["selected_county"] = ""
-        sold_scope = fd.df_time_sold
-        cut_scope = fd.df_time_cut
-        stats_title = "Overall stats"
-        scope_caption = None
-    else:
-        county_key = title_to_key.get(chosen_title, "").strip().upper()
-        st.session_state["selected_county"] = county_key
-        sold_scope = fd.df_time_sold[fd.df_time_sold["County_clean_up"] == county_key]
-        cut_scope = fd.df_time_cut[fd.df_time_cut["County_clean_up"] == county_key]
-        stats_title = "County stats"
-        scope_caption = f"County: **{chosen_title}**"
-
-    stats = compute_overall_stats(sold_scope, cut_scope)
+    stats = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
     render_overall_stats(
-        title=stats_title,
-        scope_caption=scope_caption,
         year_choice=year_choice,
         sold_total=stats["sold_total"],
         cut_total=stats["cut_total"],
@@ -227,7 +194,7 @@ if team_view == "Dispo":
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
 # -----------------------------
-# Dispo: Sidebar "Top buyers in selected county" (below stats)
+# Dispo: Sidebar "Top buyers in selected county" (below overall stats)
 # -----------------------------
 if team_view == "Dispo":
     sel_county = str(st.session_state.get("selected_county", "")).strip().upper()
@@ -246,7 +213,7 @@ if team_view == "Dispo":
         st.sidebar.markdown("---")
 
 # -----------------------------
-# County totals for sold/cut (filtered)
+# County totals for sold/cut
 # -----------------------------
 df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
 grp = df_conv.groupby("County_clean_up")
@@ -259,26 +226,41 @@ health = compute_health_score(counties_for_health, sold_counts, cut_counts)
 # -----------------------------
 # Rankings
 # -----------------------------
-if team_view == "Dispo":
-    rank_df = (
-        pd.DataFrame({"County": counties_for_health, "Health score": [health.get(c, 0.0) for c in counties_for_health]})
-        .assign(**{"Buyer count": lambda d: d["County"].map(lambda x: int(fd.df_time_sold[fd.df_time_sold["County_clean_up"] == x]["Buyer_clean"].nunique()))})
+rows = []
+for c in deal_counties:
+    sold = int(sold_counts.get(c, 0))
+    cut = int(cut_counts.get(c, 0))
+    total = sold + cut
+    close_rate = (sold / total) if total > 0 else 0.0
+
+    buyer_ct = (
+        fd.df_time_sold[fd.df_time_sold["County_clean_up"] == c]["Buyer_clean"]
+        .replace("", pd.NA)
+        .dropna()
+        .nunique()
     )
+
+    rows.append(
+        {
+            "County": c.title(),
+            "Health score": float(health.get(c, 0)),
+            "Buyer count": int(buyer_ct),
+            "Sold": sold,
+            "Cut loose": cut,
+            "Total": total,
+            "Close rate": round(close_rate * 100, 1),
+        }
+    )
+
+rank_df = pd.DataFrame(rows)
+
+if team_view == "Dispo":
     render_rankings(
         rank_df[["County", "Health score", "Buyer count"]],
         default_rank_metric="Health score",
         rank_options=["Health score", "Buyer count"],
     )
 else:
-    rows = []
-    for c in counties_for_health:
-        s = int(sold_counts.get(c, 0))
-        k = int(cut_counts.get(c, 0))
-        total = s + k
-        close = (s / total) if total else 0.0
-        rows.append((c, close, s, total, k))
-
-    rank_df = pd.DataFrame(rows, columns=["County", "Close rate", "Sold", "Total", "Cut loose"])
     render_rankings(
         rank_df[["County", "Close rate", "Sold", "Total", "Cut loose"]],
         default_rank_metric="Close rate",
@@ -286,7 +268,19 @@ else:
     )
 
 # -----------------------------
-# Build map view df + geo enrich
+# Buyer-specific sold counts (Dispo buyer filter)
+# -----------------------------
+buyer_sold_counts = {}
+if buyer_active:
+    buyer_sold_counts = (
+        fd.df_time_sold[fd.df_time_sold["Buyer_clean"] == buyer_choice]
+        .groupby("County_clean_up")
+        .size()
+        .to_dict()
+    )
+
+# -----------------------------
+# Enrich geojson for map tooltips/popups
 # -----------------------------
 county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
 county_properties_view = build_county_properties_view(df_view)
@@ -297,33 +291,42 @@ tn_geo = enrich_geojson_properties(
     tn_geo,
     team_view=team_view,
     mode=mode,
-    buyer_active=bool(team_view == "Dispo" and buyer_choice != "All buyers" and mode in ["Sold", "Both"]),
+    buyer_active=buyer_active,
     buyer_choice=buyer_choice,
     top_n_buyers=int(TOP_N),
     county_counts_view=county_counts_view,
     sold_counts=sold_counts,
     cut_counts=cut_counts,
-    county_properties_view=county_properties_view,
+    buyer_sold_counts=buyer_sold_counts,
     top_buyers_dict=top_buyers_dict,
+    county_properties_view=county_properties_view,
     mao_tier_by_county=mao_tier_by_county,
     mao_range_by_county=mao_range_by_county,
+    buyer_count_by_county=buyer_count_by_county,
 )
+
+color_scheme = "mao" if team_view == "Acquisitions" else "activity"
 
 m = build_map(
-    tn_geo=tn_geo,
+    tn_geo,
     team_view=team_view,
     mode=mode,
-    year_choice=year_choice,
+    buyer_active=buyer_active,
     buyer_choice=buyer_choice,
-    buyer_active=bool(team_view == "Dispo" and buyer_choice != "All buyers" and mode in ["Sold", "Both"]),
+    center_lat=MAP_DEFAULTS["center_lat"],
+    center_lon=MAP_DEFAULTS["center_lon"],
+    zoom_start=MAP_DEFAULTS["zoom_start"],
+    tiles=MAP_DEFAULTS["tiles"],
+    color_scheme=color_scheme,
 )
 
+# -----------------------------
+# Render map and capture clicks
+# -----------------------------
 map_state = st_folium(m, height=650, use_container_width=True)
 
-# -----------------------------
-# Click handling
-# -----------------------------
-def _extract_clicked_county_name(state: dict):
+
+def _extract_clicked_county_name(state: dict) -> str | None:
     if not isinstance(state, dict):
         return None
 
@@ -362,3 +365,56 @@ if team_view == "Acquisitions" and clicked_key:
         st.session_state["selected_county"] = clicked_key
         st.session_state["acq_pending_county_title"] = clicked_key.title()
         st.rerun()
+
+# -----------------------------
+# BELOW MAP: County details panel
+# -----------------------------
+selected_for_panel = st.session_state.get("selected_county")
+if team_view == "Acquisitions":
+    selected_for_panel = st.session_state.get("acq_selected_county", selected_for_panel)
+
+if selected_for_panel:
+    ckey = str(selected_for_panel).strip().upper()
+
+    sold = int(sold_counts.get(ckey, 0))
+    cut = int(cut_counts.get(ckey, 0))
+    total = sold + cut
+    close_rate = (sold / total) if total > 0 else None
+    close_rate_str = f"{close_rate*100:.1f}%" if close_rate is not None else "N/A"
+
+    mao_tier = str(mao_tier_by_county.get(ckey, "")) or "—"
+    mao_range = str(mao_range_by_county.get(ckey, "")) or "—"
+    buyer_ct = int(buyer_count_by_county.get(ckey, 0))
+
+    st.markdown("---")
+    st.subheader(f"{ckey.title()} County details")
+
+    a, b, c, d, e = st.columns([1, 1, 1.2, 1.2, 1.6], gap="small")
+    a.metric("Sold", sold)
+    b.metric("Cut loose", cut)
+    c.metric("Close rate", close_rate_str)
+    d.metric("# Buyers", buyer_ct)
+    e.metric("MAO", f"{mao_tier} ({mao_range})" if mao_tier != "—" or mao_range != "—" else "—")
+
+    # Properties table
+    df_props = df_view[df_view["County_clean_up"] == ckey].copy()
+    if not df_props.empty:
+        show_cols = [C.address, C.city, C.status, C.buyer, C.date, C.sf_url]
+        show_cols = [col for col in show_cols if col in df_props.columns]
+
+        df_props = df_props[show_cols].copy()
+        df_props = df_props.rename(columns={C.sf_url: "Salesforce"})
+
+        st.markdown("#### Properties in current view")
+        st.dataframe(
+            df_props,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Salesforce": st.column_config.LinkColumn("Salesforce", display_text="Open"),
+            },
+        )
+    else:
+        st.info("No properties match the current filters for this county.")
+else:
+    st.caption("Tip: Click a county to see details below the map.")
