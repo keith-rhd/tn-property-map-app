@@ -248,7 +248,7 @@ if team_view == "Dispo":
         cstats = compute_overall_stats(sold_scope, cut_scope)
 
         render_overall_stats(
-            
+            title="County stats",
             scope_caption=f"County: **{chosen_title}**",
             year_choice=year_choice,
             sold_total=cstats["sold_total"],
