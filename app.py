@@ -387,25 +387,25 @@ def _extract_clicked_county_name(state: dict) -> str | None:
 clicked_name = _extract_clicked_county_name(map_state)
 clicked_key = str(clicked_name).strip().upper() if clicked_name else ""
 
-# Always store clicked county (both views)
-if clicked_key:
-    prev_selected = str(st.session_state.get("selected_county", "")).strip().upper()
+# IMPORTANT: st_folium often repeats the LAST click on every rerun.
+# Only treat it as a "new click" if the county actually changed.
+prev_map_click = str(st.session_state.get("last_map_clicked_county", "")).strip().upper()
+
+if clicked_key and clicked_key != prev_map_click:
+    st.session_state["last_map_clicked_county"] = clicked_key
     st.session_state["selected_county"] = clicked_key
     st.session_state["county_source"] = "map"
 
     # Dispo: rerun so sidebar updates immediately
-    if team_view == "Dispo" and clicked_key != prev_selected:
+    if team_view == "Dispo":
         st.rerun()
 
-# Acquisitions: clicking should update sidebar + below map
-if team_view == "Acquisitions" and clicked_key:
-    prev_key = str(st.session_state.get("acq_selected_county", "")).strip().upper()
-    if clicked_key != prev_key:
+    # Acquisitions: update the acquisition-selected county too
+    if team_view == "Acquisitions":
         st.session_state["acq_selected_county"] = clicked_key
-        st.session_state["selected_county"] = clicked_key
-        st.session_state["county_source"] = "map"
         st.session_state["acq_pending_county_title"] = clicked_key.title()
         st.rerun()
+
 
 # -----------------------------
 # BELOW MAP: County details panel (THIS IS THE TABLE YOU MISSED)
