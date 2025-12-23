@@ -258,17 +258,6 @@ if team_view == "Dispo":
             close_rate_str=cstats["close_rate_str"],
         )
 
-# Health score for THIS county (using current filters)
-hs_dict = compute_health_score(
-    [new_key],
-    {new_key: int(cstats["sold_total"])},
-    {new_key: int(cstats["cut_total"])},
-)
-hs = float(hs_dict.get(new_key, 0.0))
-st.sidebar.markdown(f"**Health score:** {hs:.3f}")
-st.sidebar.markdown("---")
-
-
 # -----------------------------
 # Build top buyers dict (sold only)
 # -----------------------------
