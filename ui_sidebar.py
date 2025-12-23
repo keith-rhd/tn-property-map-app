@@ -28,7 +28,12 @@ def render_overall_stats(
     title: str = "Overall stats",
     scope_caption: str | None = None,
 ):
-    """Reusable stats card for the sidebar (overall or county scope)."""
+    """
+    Sidebar stats card.
+    Backwards compatible with the old signature, but now supports:
+    - title="County stats"
+    - scope_caption="County: **Davidson**"
+    """
     st.sidebar.markdown(f"## {title}")
     st.sidebar.caption(f"Year: **{year_choice}**")
     if scope_caption:
@@ -38,7 +43,7 @@ def render_overall_stats(
         f"""
 <div style="
     background: rgba(255,255,255,0.08);
-    border: 1px solid rgba(255,255,255,0.14);
+    border: 1px solid rgba(255,255,255,0.18);
     border-radius: 10px;
     padding: 10px 12px;
 ">
@@ -81,7 +86,6 @@ def render_acquisitions_guidance(
     """
     st.sidebar.markdown("## MAO guidance")
 
-    # Select box helper mappings
     options_title = [c.title() for c in (county_options or [])]
     key_to_title = {c.upper(): c.title() for c in (county_options or [])}
     title_to_key = {c.title(): c.upper() for c in (county_options or [])}
@@ -100,7 +104,6 @@ def render_acquisitions_guidance(
 
     st.sidebar.caption("Tip: you can also click a county on the map to update this.")
 
-    # Main card
     st.sidebar.markdown(
         f"""<div style="
         background: rgba(255,255,255,0.06);
@@ -117,14 +120,9 @@ def render_acquisitions_guidance(
         unsafe_allow_html=True,
     )
 
-    # Breakdown table
     if neighbor_breakdown is not None and not neighbor_breakdown.empty:
         st.sidebar.markdown("#### Nearby county buyer breakdown")
-        st.sidebar.dataframe(
-            neighbor_breakdown,
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.sidebar.dataframe(neighbor_breakdown, use_container_width=True, hide_index=True)
 
     return chosen_key
 
