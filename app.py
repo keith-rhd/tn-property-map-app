@@ -202,9 +202,9 @@ if team_view == "Dispo":
     )
 
 # -----------------------------
-# Dispo: County quick lookup (FIXED)
-# - Only sync dropdown from map clicks (county_source == "map")
-# - Dropdown selection sets selected_county and reruns
+# Dispo: County quick lookup (robust sync)
+# - Map clicks can set the dropdown
+# - But if the user changes the dropdown, we never overwrite it
 # -----------------------------
 if team_view == "Dispo":
     st.sidebar.markdown("## County quick lookup")
@@ -215,26 +215,43 @@ if team_view == "Dispo":
     title_to_key = {c.title(): c.upper() for c in all_county_options}
     key_to_title = {c.upper(): c.title() for c in all_county_options}
 
-    # Only auto-sync dropdown when the map was the last thing that changed the county
-    if st.session_state.get("county_source") == "map":
+    # Detect if the user just changed the dropdown (Streamlit sets widget state BEFORE rerun)
+    curr_dd = st.session_state.get("dispo_county_lookup", placeholder)
+    prev_dd = st.session_state.get("_dispo_prev_county_lookup", curr_dd)
+    user_changed_dropdown = curr_dd != prev_dd
+
+    # Only sync dropdown from map if:
+    # 1) the map was the last source AND
+    # 2) the user did NOT just change the dropdown in this rerun
+    if st.session_state.get("county_source") == "map" and not user_changed_dropdown:
         sel_key = str(st.session_state.get("selected_county", "")).strip().upper()
         if sel_key and sel_key in key_to_title:
             st.session_state["dispo_county_lookup"] = key_to_title[sel_key]
 
+    # Ensure key exists for the widget
     st.session_state.setdefault("dispo_county_lookup", placeholder)
 
     chosen_title = st.sidebar.selectbox(
         "County",
         options_title,
-        index=options_title.index(st.session_state["dispo_county_lookup"]) if st.session_state["dispo_county_lookup"] in options_title else 0,
+        index=options_title.index(st.session_state["dispo_county_lookup"])
+        if st.session_state["dispo_county_lookup"] in options_title
+        else 0,
         key="dispo_county_lookup",
         help="Click a county on the map OR use this dropdown to see county stats.",
     )
 
-    if chosen_title != placeholder:
+    # Persist "previous" value for next rerun (used to detect user changes)
+    st.session_state["_dispo_prev_county_lookup"] = st.session_state.get("dispo_county_lookup", placeholder)
+
+    if chosen_title == placeholder:
+        st.sidebar.caption("Select a county to see county stats here.")
+        st.sidebar.markdown("---")
+    else:
         new_key = title_to_key.get(chosen_title, "").strip().upper()
         prev_key = str(st.session_state.get("selected_county", "")).strip().upper()
 
+        # If dropdown changed county, make it the source of truth
         if new_key and new_key != prev_key:
             st.session_state["selected_county"] = new_key
             st.session_state["county_source"] = "dropdown"
@@ -254,6 +271,7 @@ if team_view == "Dispo":
             total_buyers=cstats["total_buyers"],
             close_rate_str=cstats["close_rate_str"],
         )
+
     else:
         st.sidebar.caption("Select a county to see county stats here.")
         st.sidebar.markdown("---")
