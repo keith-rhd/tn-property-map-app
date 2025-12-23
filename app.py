@@ -273,6 +273,24 @@ if team_view == "Dispo":
 
         st.sidebar.markdown("---")
 
+        # Top buyers in this county (sold-only, respects current year filter via fd.df_time_sold)
+        top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
+        top_list = (top_buyers_dict.get(new_key, []) or [])[:10]
+
+        st.sidebar.markdown("## Top buyers in selected county")
+        st.sidebar.caption(f"County: **{chosen_title}** (sold only)")
+        if top_list:
+            st.sidebar.dataframe(
+                pd.DataFrame(top_list, columns=["Buyer", "Sold deals"]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.sidebar.info("No sold buyers found for this county yet.")
+
+        st.sidebar.markdown("---")
+
+
 # -----------------------------
 # Build top buyers dict (sold only)
 # -----------------------------
