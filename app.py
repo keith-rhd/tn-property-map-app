@@ -188,20 +188,6 @@ sel = Selection(
 df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
 
 # -----------------------------
-# Overall stats (Dispo only)
-# -----------------------------
-if team_view == "Dispo":
-    stats = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
-    render_overall_stats(
-        year_choice=year_choice,
-        sold_total=stats["sold_total"],
-        cut_total=stats["cut_total"],
-        total_deals=stats["total_deals"],
-        total_buyers=stats["total_buyers"],
-        close_rate_str=stats["close_rate_str"],
-    )
-
-# -----------------------------
 # Dispo: County quick lookup (robust sync)
 # - Map clicks can set the dropdown
 # - But if the user changes the dropdown, we never overwrite it
@@ -322,6 +308,20 @@ else:
         rank_df[["County", "Close rate", "Sold", "Total", "Cut loose"]],
         default_rank_metric="Close rate",
         rank_options=["Close rate", "Sold", "Total"],
+    )
+
+# -----------------------------
+# Overall stats (Dispo only)
+# -----------------------------
+if team_view == "Dispo":
+    stats = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
+    render_overall_stats(
+        year_choice=year_choice,
+        sold_total=stats["sold_total"],
+        cut_total=stats["cut_total"],
+        total_deals=stats["total_deals"],
+        total_buyers=stats["total_buyers"],
+        close_rate_str=stats["close_rate_str"],
     )
 
 # buyer_sold_counts (only when filtering by a buyer in Dispo)
