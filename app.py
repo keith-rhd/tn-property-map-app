@@ -272,9 +272,7 @@ if team_view == "Dispo":
             close_rate_str=cstats["close_rate_str"],
         )
 
-    else:
-        st.sidebar.caption("Select a county to see county stats here.")
-        st.sidebar.markdown("---")
+
 
 # -----------------------------
 # Build top buyers dict (sold only)
