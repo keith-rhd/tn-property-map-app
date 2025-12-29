@@ -7,63 +7,55 @@ TN_GEOJSON_URL = "https://raw.githubusercontent.com/plotly/datasets/master/geojs
 TN_STATE_FIPS = "47"
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=86400, show_spinner=False)
 def load_tn_geojson() -> dict:
     resp = requests.get(TN_GEOJSON_URL, timeout=30)
     resp.raise_for_status()
     data = resp.json()
 
     tn_features = [
-        f for f in data["features"]
-        if f.get("properties", {}).get("STATE") == TN_STATE_FIPS
+        f for f in data.get("features", [])
+        if str(f.get("properties", {}).get("STATE")) == TN_STATE_FIPS
     ]
     return {"type": "FeatureCollection", "features": tn_features}
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def build_county_adjacency(tn_geo: dict) -> dict[str, list[str]]:
     """
-    Build an adjacency mapping: COUNTY_NAME_UPPER -> [NEIGHBOR_COUNTY_NAME_UPPER, ...]
-    Counties are neighbors if their polygons "touch" (share a boundary segment or point).
+    Returns adjacency dict: COUNTY_NAME_UPPER -> [NEIGHBOR_COUNTY_NAME_UPPER, ...]
+    Counties are neighbors if their polygons touch.
 
-    Cached because shapely touches checks are relatively expensive.
+    Note: expensive; cache_resource keeps it stable across reruns.
     """
-    try:
-        from shapely.geometry import shape
-    except Exception as e:
-        raise RuntimeError(
-            "Missing dependency: shapely. Add 'shapely' to requirements.txt and redeploy."
-        ) from e
+    from shapely.geometry import shape
 
-    features = tn_geo.get("features", [])
-
-    names: list[str] = []
+    feats = tn_geo.get("features", [])
+    names = []
     geoms = []
 
-    for f in features:
-        props = f.get("properties", {}) or {}
-        name = str(props.get("NAME", "")).strip().upper()
-        geom = f.get("geometry")
-
-        if not name or not geom:
+    for f in feats:
+        props = f.get("properties", {})
+        # Some geojsons use "NAME"; if not, fall back to something else
+        name = str(props.get("NAME") or props.get("name") or "").upper().strip()
+        if not name:
             continue
-
         try:
-            geoms.append(shape(geom))
-            names.append(name)
+            geom = shape(f.get("geometry"))
         except Exception:
-            # If a geometry is malformed, skip it.
             continue
+        names.append(name)
+        geoms.append(geom)
 
     adjacency: dict[str, list[str]] = {n: [] for n in names}
 
-    # O(n^2) over ~95 counties is fine with caching
+    # brute-force pairwise touches (TN has 95 counties; ok)
     for i in range(len(names)):
-        gi = geoms[i]
         ni = names[i]
+        gi = geoms[i]
         for j in range(i + 1, len(names)):
-            gj = geoms[j]
             nj = names[j]
+            gj = geoms[j]
 
             try:
                 if gi.touches(gj):
