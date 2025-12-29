@@ -2,7 +2,7 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from config import DEFAULT_PAGE, MAP_DEFAULTS, C
+from config import DEFAULT_PAGE, MAP_DEFAULTS
 from data import load_data, load_mao_tiers
 from geo import load_tn_geojson, build_county_adjacency
 from scoring import compute_health_score
@@ -27,6 +27,7 @@ from enrich import (
 )
 from map_build import build_map
 from state import init_state, ensure_default_county
+from controllers import handle_map_click
 
 st.set_page_config(**DEFAULT_PAGE)
 init_state()
@@ -81,10 +82,9 @@ with col1:
 # Year options
 years = sorted([y for y in df["Year"].dropna().unique().tolist() if int(y) > 0])
 year_options = ["All"] + [str(int(y)) for y in years]
-default_year = "All"
 
 with col2:
-    year_choice = st.selectbox("Year", year_options, index=year_options.index(default_year) if default_year in year_options else 0)
+    year_choice = st.selectbox("Year", year_options, index=0)
 
 with col3:
     map_labels = st.selectbox("Map labels", ["Health score", "Close rate", "Sold count"], index=0)
@@ -98,13 +98,13 @@ fd = prepare_filtered_data(df, year_choice=year_choice, mode=mode)
 buyers_set_by_county = fd.df_time_sold.groupby("County_clean_up")["Buyer_clean"].agg(lambda s: set([x for x in s if str(x).strip()])).to_dict()
 buyer_count_by_county = {k: len(v) for k, v in buyers_set_by_county.items()}
 
-# Selected county (single source of truth for Dispo map + panel)
+# Selected county (single source of truth)
 selected = str(st.session_state.get("selected_county", "")).strip().upper()
 if not selected:
     selected = (all_county_options[0] if all_county_options else "")
     st.session_state["selected_county"] = selected
 
-# Neighbor unique buyers (touching counties)
+# Neighbor unique buyers (touching counties) for selected
 neighbors = adjacency.get(selected, []) if selected else []
 neighbor_buyers_u = set()
 for n in neighbors:
@@ -131,14 +131,12 @@ else:
         st.selectbox("Buyer", ["All buyers"], disabled=True)
     buyer_active = False
 
-TOP_N = 10
-
 sel = Selection(
     mode=mode,
     year_choice=str(year_choice),
     buyer_choice=buyer_choice,
     buyer_active=buyer_active,
-    top_n=int(TOP_N),
+    top_n=10,
 )
 
 df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
@@ -147,7 +145,7 @@ df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
 # -----------------------------
-# Dispo: County quick lookup (Acq-style format)  [Phase B1: extracted]
+# Dispo sidebar county panel (Phase B1)
 # -----------------------------
 if team_view == "Dispo":
     top_list = (top_buyers_dict.get(selected, []) or [])[:10]
@@ -205,12 +203,7 @@ for c in counties_for_health:
 rank_df = pd.DataFrame(rows)
 
 if team_view == "Dispo":
-    render_rankings(
-        rank_df=rank_df,
-        selected_county_key=selected,
-        key_name="selected_county",
-        label="County rankings",
-    )
+    render_rankings(rank_df=rank_df, selected_county_key=selected, key_name="selected_county", label="County rankings")
 else:
     render_rankings(
         rank_df=rank_df,
@@ -257,30 +250,12 @@ m = build_map(
 map_out = st_folium(m, width=None, height=650)
 
 # -----------------------------
-# Map click handling -> update selected county
+# Map click handling (Phase B3: extracted)
 # -----------------------------
-clicked = None
-try:
-    if map_out and isinstance(map_out, dict):
-        clicked = map_out.get("last_active_drawing") or map_out.get("last_clicked")
-except Exception:
-    clicked = None
-
-clicked_name = ""
-if clicked and isinstance(clicked, dict):
-    props = clicked.get("properties") or {}
-    clicked_name = str(props.get("NAME") or props.get("name") or "").strip().upper()
-
-if clicked_name and clicked_name in [c.upper() for c in all_county_options]:
-    if clicked_name != selected:
-        st.session_state["selected_county"] = clicked_name
-        st.session_state["county_source"] = "map"
-        st.session_state["last_map_clicked_county"] = clicked_name
-        st.session_state["acq_pending_county_title"] = clicked_name.title()
-        st.rerun()
+handle_map_click(map_out, all_county_options)
 
 # -----------------------------
-# Below-map panels  [Phase B2: extracted]
+# Below-map panels (Phase B2)
 # -----------------------------
 render_selected_county_details(
     df_view=df_view,
