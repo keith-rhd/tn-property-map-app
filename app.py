@@ -30,21 +30,6 @@ st.set_page_config(**DEFAULT_PAGE)
 st.title("Closed RHD Properties Map")
 
 df = load_data()
-
-# -----------------------------
-# HARDENING: ensure Date is datetime so Year logic won't break
-# -----------------------------
-if hasattr(C, "date") and C.date in df.columns:
-    df[C.date] = pd.to_datetime(df[C.date], errors="coerce")
-
-if "Year" not in df.columns:
-    # Try to build Year if missing
-    if hasattr(C, "date") and C.date in df.columns:
-        df["Year"] = df[C.date].dt.year
-
-if "Year" in df.columns:
-    df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
-
 tiers = load_mao_tiers()
 
 # Geo + adjacency
