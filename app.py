@@ -25,11 +25,14 @@ from enrich import (
     enrich_geojson_properties,
 )
 from map_build import build_map
+from state import init_state, ensure_default_county
 
 st.set_page_config(**DEFAULT_PAGE)
+init_state()
 st.title("Closed RHD Properties Map")
 
 df = load_data()
+
 tiers = load_mao_tiers()
 
 # Geo + adjacency
@@ -49,10 +52,13 @@ if tiers is not None and not tiers.empty:
 deal_counties = sorted(df["County_clean_up"].dropna().unique().tolist())
 all_county_options = tier_counties if tier_counties else deal_counties
 
+# Phase A3: set a stable default county once we know county options.
+ensure_default_county(all_county_options, preferred="DAVIDSON")
+
 # -----------------------------
 # Sidebar: Team view toggle
 # -----------------------------
-team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
+team_view = render_team_view_toggle(default=st.session_state["team_view"])
 st.session_state["team_view"] = team_view
 
 # -----------------------------
@@ -90,9 +96,9 @@ buyer_count_by_county = (
 # Acquisitions sidebar (MAO guidance + quick search + nearby buyers)
 # -----------------------------
 if team_view == "Acquisitions":
-    if "acq_pending_county_title" in st.session_state:
+    if st.session_state.get("acq_pending_county_title"):
         st.session_state["acq_county_select"] = st.session_state["acq_pending_county_title"]
-        del st.session_state["acq_pending_county_title"]
+        st.session_state["acq_pending_county_title"] = ""
 
     selected = st.session_state.get("acq_selected_county")
     if not selected:
@@ -195,8 +201,6 @@ if team_view == "Dispo":
         sel_key = str(st.session_state.get("selected_county", "")).strip().upper()
         if sel_key and sel_key in key_to_title:
             st.session_state["dispo_county_lookup"] = key_to_title[sel_key]
-
-    st.session_state.setdefault("dispo_county_lookup", placeholder)
 
     chosen_title = st.sidebar.selectbox(
         "County quick search",
