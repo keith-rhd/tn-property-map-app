@@ -151,3 +151,97 @@ def render_rankings(rank_df: pd.DataFrame, *, default_rank_metric: str, rank_opt
         hide_index=True,
     )
     return rank_metric, top_n
+
+###################################
+#  vvv Phase B update below vvv   #
+###################################
+
+def render_dispo_county_panel(
+    county_options: list[str],
+    selected_county_key: str,
+    mao_tier: str,
+    mao_range: str,
+    buyer_count: int,
+    neighbor_unique_buyers: int,
+    top_buyers_df: pd.DataFrame,
+) -> str:
+    """
+    Dispo sidebar panel that matches the Acquisitions-style layout:
+      - County quick search dropdown (kept in sync with map clicks)
+      - Stats: County, MAO Tier/Range, buyer counts
+      - Top buyers table (sold only)
+
+    Returns:
+      chosen_key (UPPER county key) or "" if placeholder selected.
+    """
+    st.sidebar.markdown("## County stats")
+    st.sidebar.caption("County quick search")
+
+    placeholder = "— Select a county —"
+    county_titles = [c.title() for c in county_options]
+    options_title = [placeholder] + county_titles
+
+    title_to_key = {c.title(): c.upper() for c in county_options}
+    key_to_title = {c.upper(): c.title() for c in county_options}
+
+    # Detect if the user just changed dropdown (Streamlit sets widget state BEFORE rerun)
+    curr_dd = st.session_state.get("dispo_county_lookup", placeholder)
+    prev_dd = st.session_state.get("_dispo_prev_county_lookup", curr_dd)
+    user_changed_dropdown = curr_dd != prev_dd
+
+    # Only auto-sync dropdown from map if map was the source AND user didn't just change dropdown
+    if st.session_state.get("county_source") == "map" and not user_changed_dropdown:
+        sel_key = str(selected_county_key or "").strip().upper()
+        if sel_key and sel_key in key_to_title:
+            st.session_state["dispo_county_lookup"] = key_to_title[sel_key]
+
+    chosen_title = st.sidebar.selectbox(
+        "County quick search",
+        options_title,
+        index=options_title.index(st.session_state.get("dispo_county_lookup", placeholder))
+        if st.session_state.get("dispo_county_lookup", placeholder) in options_title
+        else 0,
+        key="dispo_county_lookup",
+        label_visibility="collapsed",
+        help="Tip: you can also click a county on the map to update this.",
+    )
+
+    # Track previous so we can detect real user changes next rerun
+    st.session_state["_dispo_prev_county_lookup"] = chosen_title
+
+    # If placeholder, stop here
+    if chosen_title == placeholder:
+        st.sidebar.info("Select a county from the dropdown or click one on the map.")
+        return ""
+
+    chosen_key = title_to_key.get(chosen_title, "").strip().upper()
+    if not chosen_key:
+        st.sidebar.info("Select a county from the dropdown or click one on the map.")
+        return ""
+
+    # Render the Acq-style stats block
+    st.sidebar.markdown(
+        f"""
+**County:** {chosen_title}  
+**MAO Tier:** {mao_tier or "—"}  
+**MAO Range:** {mao_range or "—"}  
+**# Buyers (this county):** {int(buyer_count)}  
+**# Buyers (touching counties):** {int(neighbor_unique_buyers)}  
+"""
+    )
+
+    st.sidebar.markdown("## Top buyers in selected county")
+    st.sidebar.caption(f"County: **{chosen_title}** (sold only)")
+
+    if top_buyers_df is not None and not top_buyers_df.empty:
+        st.sidebar.dataframe(
+            top_buyers_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.sidebar.info("No sold buyers found for this county yet.")
+
+    st.sidebar.markdown("---")
+    return chosen_key
+
