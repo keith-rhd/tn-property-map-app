@@ -16,17 +16,84 @@ def _read_csv(url: str) -> pd.DataFrame:
 
 def _normalize_county_key(x: str) -> str:
     """
-    Normalize county strings into a robust join key:
-      - upper
-      - strip
-      - remove 'COUNTY'
-      - keep letters only
+    Very forgiving county normalizer used ONLY for joining tiers <-> deals.
+    Removes:
+      - 'COUNTY' word
+      - punctuation
+      - all whitespace
+    Keeps only A–Z characters.
     """
     s = "" if x is None else str(x)
     s = s.upper().strip()
     s = re.sub(r"\bCOUNTY\b", "", s)  # remove word COUNTY if present
     s = re.sub(r"[^A-Z]", "", s)      # keep only letters (removes spaces, punctuation)
     return s
+
+
+def normalize_inputs(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize the raw Google Sheet into a hardened dataframe.
+
+    Phase A2: put *all* parsing/cleanup in one place so the rest of the app
+    doesn't need defensive "if col exists" logic.
+
+    Guaranteed outputs (at minimum):
+      - REQUIRED_COLS + Status/Buyer/Date (filled if missing)
+      - Date_dt (datetime)
+      - Year (numeric-ish)
+      - County_clean_up (UPPER)
+      - County_key (robust join key)
+      - Status_norm ("sold" / "cut loose" best effort)
+      - Buyer_clean (stripped)
+    """
+    df = df.copy()
+
+    # Ensure expected columns exist
+    expected = set(REQUIRED_COLS) | {C.status, C.buyer, C.date, C.county}
+    for col in expected:
+        if col not in df.columns:
+            df[col] = ""
+
+    # Basic NA hardening
+    df[C.status] = df[C.status].fillna("Sold")
+    df[C.buyer] = df[C.buyer].fillna("")
+    df[C.county] = df[C.county].fillna("")
+
+    # Dates
+    df["Date_dt"] = pd.to_datetime(df.get(C.date), errors="coerce")
+    # Keep Date as datetime too so any .dt usage elsewhere is safe
+    df[C.date] = df["Date_dt"]
+    df["Year"] = df["Date_dt"].dt.year
+
+    # County normalization (display-friendly)
+    df["County_clean_up"] = (
+        df[C.county]
+        .astype(str)
+        .str.replace(" County", "", case=False)
+        .str.strip()
+        .str.upper()
+    )
+    # Common typo guard
+    df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
+
+    # Robust join key (used for tiers merge)
+    df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
+
+    # Status normalization (keep it predictable for filters.py)
+    s = df[C.status].astype(str).str.lower().str.strip()
+    s = s.str.replace(r"\s+", " ", regex=True)
+    s = s.str.replace("cutloose", "cut loose")
+    s = s.str.replace("cut-loose", "cut loose")
+    # If it's anything like "sold" -> sold; anything like "cut" -> cut loose
+    df["Status_norm"] = s.where(~s.str.contains("cut"), "cut loose")
+    df.loc[df["Status_norm"].str.contains("sold"), "Status_norm"] = "sold"
+
+    # Buyer normalization
+    df["Buyer_clean"] = df[C.buyer].astype(str).str.strip()
+
+    # Make Year numeric-ish (safe)
+    df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
+
+    return df
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -38,111 +105,100 @@ def load_mao_tiers() -> pd.DataFrame:
       - 'MAO Min' / 'MAO Max' columns (decimals like 0.73 supported).
     Always returns: County_clean_up, County_key, MAO_Tier, MAO_Range_Str
     """
-    df = _read_csv(MAO_TIERS_URL).copy()
+    out_cols = ["County_clean_up", "County_key", "MAO_Tier", "MAO_Range_Str"]
 
-    if "County" not in df.columns:
-        # allow alternate casing
-        for col in df.columns:
-            if str(col).strip().lower() == "county":
-                df = df.rename(columns={col: "County"})
-                break
+    if not MAO_TIERS_URL:
+        return pd.DataFrame(columns=out_cols)
 
-    # Basic hardening
-    df["County_clean_up"] = df.get("County", "").astype(str).str.strip()
+    try:
+        t = _read_csv(MAO_TIERS_URL)
+    except Exception:
+        return pd.DataFrame(columns=out_cols)
+
+    lower = {c.lower().strip(): c for c in t.columns}
+
+    def pick(*names):
+        for n in names:
+            if n in lower:
+                return lower[n]
+        return None
+
+    county_col = pick("county")
+    tier_col = pick("tier", "mao tier")
+    range_col = pick("mao range", "range", "mao_range")
+
+    min_col = pick("mao min", "min", "mao_min", "min mao")
+    max_col = pick("mao max", "max", "mao_max", "max mao")
+
+    if not county_col or not tier_col:
+        return pd.DataFrame(columns=out_cols)
+
+    df = t.copy()
+
+    df["County_clean_up"] = (
+        df[county_col]
+        .astype(str)
+        .str.replace(" County", "", case=False)
+        .str.strip()
+        .str.upper()
+    )
+
+    # common typo guard
+    df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
+
+    # robust join key
     df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
 
-    # Tier
-    tier_col = None
-    for c in df.columns:
-        if str(c).strip().lower() in ("mao tier", "tier", "maotier"):
-            tier_col = c
-            break
-    if tier_col is None:
-        df["MAO_Tier"] = ""
-    else:
-        df["MAO_Tier"] = df[tier_col].astype(str).str.strip()
+    df["MAO_Tier"] = df[tier_col].astype(str).str.strip()
 
-    # Range string
-    range_col = None
-    for c in df.columns:
-        if str(c).strip().lower() in ("mao range", "range", "maorange"):
-            range_col = c
-            break
-
+    # Preferred: a single explicit MAO Range column
     if range_col:
         df["MAO_Range_Str"] = df[range_col].astype(str).str.strip()
-    else:
-        # Build from min/max if present
-        min_col = None
-        max_col = None
-        for c in df.columns:
-            lc = str(c).strip().lower()
-            if lc in ("mao min", "min", "maomin"):
-                min_col = c
-            if lc in ("mao max", "max", "maomax"):
-                max_col = c
+        return df[out_cols]
 
-        def _fmt_pct(x):
-            try:
-                v = float(x)
-                if v <= 1.5:  # treat as decimal (0.73)
-                    v *= 100.0
-                return f"{v:.0f}%"
-            except Exception:
-                return ""
+    # Fallback: build from min/max
+    df["_mn"] = pd.to_numeric(df[min_col], errors="coerce") if min_col else pd.NA
+    df["_mx"] = pd.to_numeric(df[max_col], errors="coerce") if max_col else pd.NA
 
-        if min_col and max_col:
-            df["MAO_Range_Str"] = df.apply(
-                lambda r: f"{_fmt_pct(r[min_col])}–{_fmt_pct(r[max_col])}".strip("–"),
-                axis=1,
-            )
-        else:
-            df["MAO_Range_Str"] = ""
+    def to_pct(x):
+        if pd.isna(x):
+            return pd.NA
+        x = float(x)
+        return x * 100 if x <= 1.0 else x  # handles 0.73 vs 73
 
-    return df[["County_clean_up", "County_key", "MAO_Tier", "MAO_Range_Str"]].copy()
+    df["_mn"] = df["_mn"].apply(to_pct)
+    df["_mx"] = df["_mx"].apply(to_pct)
+
+    def fmt_range(r):
+        mn, mx = r["_mn"], r["_mx"]
+        if pd.notna(mn) and pd.notna(mx):
+            return f"{round(mn)}%–{round(mx)}%"
+        if pd.notna(mn):
+            return f"{round(mn)}%+"
+        if pd.notna(mx):
+            return f"≤{round(mx)}%"
+        return ""
+
+    df["MAO_Range_Str"] = df.apply(fmt_range, axis=1)
+
+    return df[out_cols]
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_data() -> pd.DataFrame:
-    """
-    Load main Closed/Cut Loose sheet data and return a hardened dataframe.
-    Ensures REQUIRED_COLS exist and standardizes County values.
-    Also merges in MAO tiers (best effort).
-    """
-    df = _read_csv(SHEET_URL).copy()
+    df = _read_csv(SHEET_URL)
+    df = normalize_inputs(df)
 
-    # ensure expected columns exist
-    for col in REQUIRED_COLS:
-        if col not in df.columns:
-            df[col] = ""
-
-    # normalize datatypes
-    df["County_clean_up"] = df["County"].astype(str).str.strip()
-    df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
-
-    # Clean status
-    df["Status_norm"] = df["Status"].astype(str).str.strip().str.title()
-
-    # Parse Date (best effort)
-    try:
-        df["Date_parsed"] = pd.to_datetime(df["Date"], errors="coerce")
-        df["Year"] = df["Date_parsed"].dt.year.fillna(0).astype(int)
-    except Exception:
-        df["Date_parsed"] = pd.NaT
-        df["Year"] = 0
-
-    # Merge in tiers
+    # Merge MAO tiers (safe + robust)
     try:
         tiers = load_mao_tiers()
         if not tiers.empty:
-            # merge on robust key, keep df's County_clean_up for display
             df = df.merge(
                 tiers[["County_key", "MAO_Tier", "MAO_Range_Str"]],
                 on="County_key",
                 how="left",
             )
     except Exception:
-        # don't break the app if the tiers sheet has issues
         df["MAO_Tier"] = ""
         df["MAO_Range_Str"] = ""
 
