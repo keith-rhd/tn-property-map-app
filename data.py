@@ -16,12 +16,11 @@ def _read_csv(url: str) -> pd.DataFrame:
 
 def _normalize_county_key(x: str) -> str:
     """
-    Very forgiving county normalizer used ONLY for joining tiers <-> deals.
+    Forgiving county normalizer used for joins.
     Removes:
-      - 'COUNTY' word
-      - punctuation
-      - all whitespace
-    Keeps only A–Z characters.
+      - word COUNTY
+      - punctuation/spaces
+    Keeps only A–Z.
     """
     s = "" if x is None else str(x)
     s = s.upper().strip()
@@ -32,30 +31,19 @@ def _normalize_county_key(x: str) -> str:
 
 def _normalize_status(series: pd.Series) -> pd.Series:
     """
-    Convert whatever the sheet has into the ONLY two values the app expects:
-      - "sold"
-      - "cut loose"
-    Everything else becomes "" (won't count as either).
+    Canonicalize to exactly:
+      - 'sold'
+      - 'cut loose'
     """
     s = series.fillna("").astype(str).str.strip().str.lower()
-
-    # Remove extra punctuation/spaces so "Cutloose", "Cut Loose", "CUT-LOOSE" all match
     compact = (
         s.str.replace(r"[\s\-_]+", "", regex=True)
          .str.replace(r"[^a-z]", "", regex=True)
     )
 
     out = pd.Series([""] * len(s), index=s.index, dtype="object")
-
-    # Sold/Closed bucket
-    sold_mask = compact.isin(["sold", "closed", "close", "closing", "settled"])
-    out.loc[sold_mask] = "sold"
-
-    # Cut loose bucket (catch common variants)
-    cut_mask = compact.isin(["cutloose", "cutlose", "cut"])
-    out.loc[cut_mask] = "cut loose"
-
-    # If it literally already says "cut loose" with a space, it would become "cutloose" above and match.
+    out.loc[compact.isin(["sold", "closed", "close", "closing", "settled"])] = "sold"
+    out.loc[compact.isin(["cutloose", "cutlose", "cut"])] = "cut loose"
     return out
 
 
@@ -78,14 +66,14 @@ def load_mao_tiers() -> pd.DataFrame:
     if county_col is None:
         county_col = tiers.columns[0]
 
-    # Tier column
+    # Find tier column
     tier_col = None
     for c in tiers.columns:
         if str(c).strip().lower() in ("mao tier", "mao_tier", "tier"):
             tier_col = c
             break
 
-    # Range column
+    # Find range column
     range_col = None
     for c in tiers.columns:
         if str(c).strip().lower() in ("mao range", "mao_range", "range"):
@@ -94,6 +82,7 @@ def load_mao_tiers() -> pd.DataFrame:
 
     df = pd.DataFrame()
     df["County_clean_up"] = tiers[county_col].astype(str).str.strip().str.upper()
+    # IMPORTANT: tiers sheet may already omit "County", but normalize key regardless
     df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
     df["MAO_Tier"] = tiers[tier_col].astype(str).str.strip() if tier_col else ""
     df["MAO_Range_Str"] = tiers[range_col].astype(str).str.strip() if range_col else ""
@@ -114,15 +103,19 @@ def load_data() -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
 
-    # County cleanup
-    df["County_clean_up"] = (
-        df[C.county]
-        .astype(str)
-        .fillna("")
-        .str.strip()
-        .str.upper()
-    )
-    df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
+    # -----------------------------
+    # County cleanup (CRITICAL FIX)
+    # -----------------------------
+    # Sheet has "Marion County", GeoJSON has "MARION"
+    county_raw = df[C.county].astype(str).fillna("").str.strip().str.upper()
+
+    # Remove trailing " COUNTY" (and any standalone COUNTY word)
+    county_clean = county_raw.str.replace(r"\s+COUNTY\b", "", regex=True).str.strip()
+
+    # Keep your historical fix
+    county_clean = county_clean.replace({"STEWART COUTY": "STEWART"})
+
+    df["County_clean_up"] = county_clean
 
     # Join key for tiers merge
     df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
@@ -130,10 +123,10 @@ def load_data() -> pd.DataFrame:
     # Buyer cleanup
     df["Buyer_clean"] = df[C.buyer].astype(str).fillna("").astype(str).str.strip()
 
-    # IMPORTANT: normalized statuses the rest of the app expects
+    # Status normalization expected by filters.py
     df["Status_norm"] = _normalize_status(df[C.status])
 
-    # IMPORTANT: momentum.py expects Date_dt
+    # Date parsing expected by momentum.py
     df["Date_dt"] = pd.to_datetime(df.get(C.date), errors="coerce")
     df["Year"] = df["Date_dt"].dt.year
 
