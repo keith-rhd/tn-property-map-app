@@ -30,73 +30,7 @@ def _normalize_county_key(x: str) -> str:
     return s
 
 
-def normalize_inputs(df: pd.DataFrame) -> pd.DataFrame:
-    """Normalize the raw Google Sheet into a hardened dataframe.
-
-    Phase A2: put *all* parsing/cleanup in one place so the rest of the app
-    doesn't need defensive "if col exists" logic.
-
-    Guaranteed outputs (at minimum):
-      - REQUIRED_COLS + Status/Buyer/Date (filled if missing)
-      - Date_dt (datetime)
-      - Year (numeric-ish)
-      - County_clean_up (UPPER)
-      - County_key (robust join key)
-      - Status_norm ("sold" / "cut loose" best effort)
-      - Buyer_clean (stripped)
-    """
-    df = df.copy()
-
-    # Ensure expected columns exist
-    expected = set(REQUIRED_COLS) | {C.status, C.buyer, C.date, C.county}
-    for col in expected:
-        if col not in df.columns:
-            df[col] = ""
-
-    # Basic NA hardening
-    df[C.status] = df[C.status].fillna("Sold")
-    df[C.buyer] = df[C.buyer].fillna("")
-    df[C.county] = df[C.county].fillna("")
-
-    # Dates
-    df["Date_dt"] = pd.to_datetime(df.get(C.date), errors="coerce")
-    # Keep Date as datetime too so any .dt usage elsewhere is safe
-    df[C.date] = df["Date_dt"]
-    df["Year"] = df["Date_dt"].dt.year
-
-    # County normalization (display-friendly)
-    df["County_clean_up"] = (
-        df[C.county]
-        .astype(str)
-        .str.replace(" County", "", case=False)
-        .str.strip()
-        .str.upper()
-    )
-    # Common typo guard
-    df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
-
-    # Robust join key (used for tiers merge)
-    df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
-
-    # Status normalization (keep it predictable for filters.py)
-    s = df[C.status].astype(str).str.lower().str.strip()
-    s = s.str.replace(r"\s+", " ", regex=True)
-    s = s.str.replace("cutloose", "cut loose")
-    s = s.str.replace("cut-loose", "cut loose")
-    # If it's anything like "sold" -> sold; anything like "cut" -> cut loose
-    df["Status_norm"] = s.where(~s.str.contains("cut"), "cut loose")
-    df.loc[df["Status_norm"].str.contains("sold"), "Status_norm"] = "sold"
-
-    # Buyer normalization
-    df["Buyer_clean"] = df[C.buyer].astype(str).str.strip()
-
-    # Make Year numeric-ish (safe)
-    df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
-
-    return df
-
-
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_mao_tiers() -> pd.DataFrame:
     """
     Loads MAO tiers from the MAO Tiers tab.
@@ -146,7 +80,7 @@ def load_mao_tiers() -> pd.DataFrame:
     # common typo guard
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
 
-    # robust join key
+    # NEW: robust join key
     df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
 
     df["MAO_Tier"] = df[tier_col].astype(str).str.strip()
@@ -184,21 +118,56 @@ def load_mao_tiers() -> pd.DataFrame:
     return df[out_cols]
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_data() -> pd.DataFrame:
     df = _read_csv(SHEET_URL)
-    df = normalize_inputs(df)
+
+    missing = [c for c in REQUIRED_COLS if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+
+    # Optional columns
+    if C.status not in df.columns:
+        df[C.status] = "Sold"
+    if C.buyer not in df.columns:
+        df[C.buyer] = ""
+
+    df[C.status] = df[C.status].fillna("Sold")
+    df[C.buyer] = df[C.buyer].fillna("")
+
+    # Dates
+    df["Date_dt"] = pd.to_datetime(df.get(C.date), errors="coerce")
+    df["Year"] = df["Date_dt"].dt.year
+
+    # County normalization (display-friendly)
+    df["County_clean_up"] = (
+        df[C.county]
+        .astype(str)
+        .str.replace(" County", "", case=False)
+        .str.strip()
+        .str.upper()
+    )
+    df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
+
+    # NEW: robust join key (used only for merge)
+    df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
+
+    # Needed by filters.py / momentum.py
+    df["Status_norm"] = df[C.status].astype(str).str.lower().str.strip()
+    df["Buyer_clean"] = df[C.buyer].astype(str).str.strip()
 
     # Merge MAO tiers (safe + robust)
     try:
         tiers = load_mao_tiers()
         if not tiers.empty:
+            # merge on robust key, keep df's County_clean_up for display
             df = df.merge(
                 tiers[["County_key", "MAO_Tier", "MAO_Range_Str"]],
                 on="County_key",
                 how="left",
             )
     except Exception:
+        # don't break the app if the tiers sheet has issues
         df["MAO_Tier"] = ""
         df["MAO_Range_Str"] = ""
 
