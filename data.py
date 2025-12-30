@@ -25,94 +25,78 @@ def _normalize_county_key(x: str) -> str:
     """
     s = "" if x is None else str(x)
     s = s.upper().strip()
-    s = re.sub(r"\bCOUNTY\b", "", s)  # remove word COUNTY if present
-    s = re.sub(r"[^A-Z]", "", s)      # keep only letters (removes spaces, punctuation)
+    s = re.sub(r"\bCOUNTY\b", "", s)
+    s = re.sub(r"[^A-Z]", "", s)
     return s
+
+
+def _normalize_status(series: pd.Series) -> pd.Series:
+    """
+    Convert whatever the sheet has into the ONLY two values the app expects:
+      - "sold"
+      - "cut loose"
+    Everything else becomes "" (won't count as either).
+    """
+    s = series.fillna("").astype(str).str.strip().str.lower()
+
+    # Remove extra punctuation/spaces so "Cutloose", "Cut Loose", "CUT-LOOSE" all match
+    compact = (
+        s.str.replace(r"[\s\-_]+", "", regex=True)
+         .str.replace(r"[^a-z]", "", regex=True)
+    )
+
+    out = pd.Series([""] * len(s), index=s.index, dtype="object")
+
+    # Sold/Closed bucket
+    sold_mask = compact.isin(["sold", "closed", "close", "closing", "settled"])
+    out.loc[sold_mask] = "sold"
+
+    # Cut loose bucket (catch common variants)
+    cut_mask = compact.isin(["cutloose", "cutlose", "cut"])
+    out.loc[cut_mask] = "cut loose"
+
+    # If it literally already says "cut loose" with a space, it would become "cutloose" above and match.
+    return out
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_mao_tiers() -> pd.DataFrame:
-    """
-    Loads MAO tiers from the MAO Tiers tab.
-    Supports either:
-      - a single 'MAO Range' column, OR
-      - 'MAO Min' / 'MAO Max' columns (decimals like 0.73 supported).
-    Always returns: County_clean_up, County_key, MAO_Tier, MAO_Range_Str
-    """
     out_cols = ["County_clean_up", "County_key", "MAO_Tier", "MAO_Range_Str"]
 
     tiers = _read_csv(MAO_TIERS_URL)
     if tiers.empty:
         return pd.DataFrame(columns=out_cols)
 
-    # Normalize columns
     tiers.columns = [str(c).strip() for c in tiers.columns]
 
-    # Try to find county column
+    # Find county column
     county_col = None
     for c in tiers.columns:
         if str(c).strip().lower() in ("county", "county_name", "countyname"):
             county_col = c
             break
     if county_col is None:
-        county_col = tiers.columns[0]  # fallback
+        county_col = tiers.columns[0]
 
-    # MAO tier column
+    # Tier column
     tier_col = None
     for c in tiers.columns:
         if str(c).strip().lower() in ("mao tier", "mao_tier", "tier"):
             tier_col = c
             break
 
-    # Range handling
+    # Range column
     range_col = None
     for c in tiers.columns:
         if str(c).strip().lower() in ("mao range", "mao_range", "range"):
             range_col = c
             break
 
-    min_col = None
-    max_col = None
-    for c in tiers.columns:
-        lc = str(c).strip().lower()
-        if lc in ("mao min", "mao_min", "min"):
-            min_col = c
-        if lc in ("mao max", "mao_max", "max"):
-            max_col = c
-
     df = pd.DataFrame()
     df["County_clean_up"] = tiers[county_col].astype(str).str.strip().str.upper()
     df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
     df["MAO_Tier"] = tiers[tier_col].astype(str).str.strip() if tier_col else ""
-
-    if range_col and range_col in tiers.columns:
-        df["MAO_Range_Str"] = tiers[range_col].astype(str).str.strip()
-    elif min_col and max_col and min_col in tiers.columns and max_col in tiers.columns:
-        def fmt_pct(x):
-            try:
-                v = float(x)
-                if v <= 1.0:
-                    v *= 100.0
-                return v
-            except Exception:
-                return None
-
-        mins = tiers[min_col].apply(fmt_pct)
-        maxs = tiers[max_col].apply(fmt_pct)
-
-        def fmt_range(pair):
-            lo, hi = pair
-            if lo is None and hi is None:
-                return ""
-            if lo is None:
-                return f"≤{hi:.0f}%"
-            if hi is None:
-                return f"≥{lo:.0f}%"
-            return f"{lo:.0f}%–{hi:.0f}%"
-
-        df["MAO_Range_Str"] = [fmt_range(x) for x in zip(mins, maxs)]
-    else:
-        df["MAO_Range_Str"] = ""
+    df["MAO_Range_Str"] = tiers[range_col].astype(str).str.strip() if range_col else ""
 
     return df[out_cols]
 
@@ -130,7 +114,7 @@ def load_data() -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
 
-    # Canonical cleanup used throughout app
+    # County cleanup
     df["County_clean_up"] = (
         df[C.county]
         .astype(str)
@@ -138,21 +122,22 @@ def load_data() -> pd.DataFrame:
         .str.strip()
         .str.upper()
     )
-    # Keep your historical fix
     df.loc[df["County_clean_up"] == "STEWART COUTY", "County_clean_up"] = "STEWART"
 
-    # Robust join key for tiers merge ONLY
+    # Join key for tiers merge
     df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
 
-    # Needed by filters.py / momentum.py
-    df["Status_norm"] = df[C.status].astype(str).str.lower().str.strip()
+    # Buyer cleanup
     df["Buyer_clean"] = df[C.buyer].astype(str).fillna("").astype(str).str.strip()
+
+    # IMPORTANT: normalized statuses the rest of the app expects
+    df["Status_norm"] = _normalize_status(df[C.status])
 
     # IMPORTANT: momentum.py expects Date_dt
     df["Date_dt"] = pd.to_datetime(df.get(C.date), errors="coerce")
     df["Year"] = df["Date_dt"].dt.year
 
-    # Merge MAO tiers (do not crash app if tiers sheet has issues)
+    # Merge tiers (don’t crash app if tiers sheet has issues)
     try:
         tiers = load_mao_tiers()
         if not tiers.empty:
