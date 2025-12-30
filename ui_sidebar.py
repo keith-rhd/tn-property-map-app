@@ -1,43 +1,26 @@
-# ui_sidebar.py
 import pandas as pd
 import streamlit as st
 
 
 def render_team_view_toggle(default: str = "Dispo") -> str:
-    """Sidebar toggle between Dispo and Acquisitions views."""
     st.sidebar.markdown("## Team view")
     options = ["Dispo", "Acquisitions"]
-    index = 0 if default not in options else options.index(default)
-    team_view = st.sidebar.radio(
-        "Choose a view",
-        options,
-        index=index,
-        label_visibility="collapsed",
-    )
-    return team_view
+    index = options.index(default) if default in options else 0
+    return st.sidebar.radio("Choose a view", options, index=index, label_visibility="collapsed")
 
 
-def render_overall_stats(
-    *,
-    year_choice,
-    sold_total: int,
-    cut_total: int,
-    total_deals: int,
-    total_buyers: int,
-    close_rate_str: str,
-    title: str = "Overall stats",
-    scope_caption: str | None = None,
-):
-    """
-    Sidebar stats card.
-    Backwards compatible with the old signature, but now supports:
-    - title="County stats"
-    - scope_caption="County: **Davidson**"
-    """
+def render_overall_stats(overall: dict, title: str = "Overall stats"):
+    """Renders overall stats (kept compatible with your current app.py usage)."""
     st.sidebar.markdown(f"## {title}")
+
+    sold_total = int(overall.get("sold_total", 0))
+    cut_total = int(overall.get("cut_total", 0))
+    total_deals = int(overall.get("total_deals", sold_total + cut_total))
+    total_buyers = int(overall.get("total_buyers", 0))
+    close_rate_str = str(overall.get("close_rate_str", "0.0%"))
+    year_choice = overall.get("year_choice", "All")
+
     st.sidebar.caption(f"Year: **{year_choice}**")
-    if scope_caption:
-        st.sidebar.caption(scope_caption)
 
     st.sidebar.markdown(
         f"""
@@ -70,6 +53,35 @@ def render_overall_stats(
     st.sidebar.markdown("---")
 
 
+def render_rankings(
+    rank_df: pd.DataFrame,
+    *,
+    selected_county_key: str,
+    key_name: str,
+    label: str = "County rankings",
+):
+    st.sidebar.markdown(f"## {label}")
+
+    if rank_df is None or rank_df.empty:
+        st.sidebar.info("No ranking data available.")
+        return
+
+    # Default metric depends on view; keep it simple
+    metric_options = [c for c in ["Health score", "Close rate", "Sold", "Buyer count", "Total"] if c in rank_df.columns]
+    metric = st.sidebar.selectbox("Rank by", metric_options, index=0)
+    top_n = st.sidebar.slider("Top N", 5, 50, 15, 5)
+
+    st.sidebar.dataframe(
+        rank_df.sort_values(metric, ascending=False).head(top_n),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # Optional: jump-to-county behavior via dropdown (kept minimal)
+    if selected_county_key:
+        pass
+
+
 def render_acquisitions_guidance(
     *,
     county_options: list[str],
@@ -78,11 +90,13 @@ def render_acquisitions_guidance(
     mao_range: str,
     buyer_count: int,
     neighbor_unique_buyers: int,
-    neighbor_breakdown: pd.DataFrame,
+    county_close_rate_pct: float | None = None,
+    tier_close_rate_pct: float | None = None,
+    tier_deals_n: int | None = None,
 ) -> str:
     """
     Acquisitions sidebar block.
-    Returns the newly selected county (UPPERCASE key).
+    Returns newly selected county (UPPERCASE key).
     """
     st.sidebar.markdown("## MAO guidance")
 
@@ -90,19 +104,37 @@ def render_acquisitions_guidance(
     key_to_title = {c.upper(): c.title() for c in (county_options or [])}
     title_to_key = {c.title(): c.upper() for c in (county_options or [])}
 
-    default_title = key_to_title.get(selected_county_key.upper(), options_title[0] if options_title else "—")
+    default_title = key_to_title.get(str(selected_county_key).upper(), options_title[0] if options_title else "—")
 
     chosen_title = st.sidebar.selectbox(
         "County quick search",
         options_title if options_title else ["—"],
         index=(options_title.index(default_title) if options_title and default_title in options_title else 0),
         key="acq_county_select",
-        help="Use this if you can’t easily click the county on the map.",
+        help="Tip: you can also click a county on the map to update this.",
     )
-
-    chosen_key = title_to_key.get(chosen_title, selected_county_key.upper())
+    chosen_key = title_to_key.get(chosen_title, str(selected_county_key).upper())
 
     st.sidebar.caption("Tip: you can also click a county on the map to update this.")
+
+    # Tier vs actual close-rate
+    cr_line = "—"
+    tier_line = "—"
+    delta_line = ""
+
+    if county_close_rate_pct is not None:
+        cr_line = f"{county_close_rate_pct:.1f}%"
+
+    if tier_close_rate_pct is not None:
+        if tier_deals_n is not None:
+            tier_line = f"{tier_close_rate_pct:.1f}% (n={int(tier_deals_n)})"
+        else:
+            tier_line = f"{tier_close_rate_pct:.1f}%"
+
+    if county_close_rate_pct is not None and tier_close_rate_pct is not None:
+        delta = county_close_rate_pct - tier_close_rate_pct
+        sign = "+" if delta >= 0 else ""
+        delta_line = f"<div style='margin-bottom:6px;'><b>Vs tier:</b> {sign}{delta:.1f} pts</div>"
 
     st.sidebar.markdown(
         f"""<div style="
@@ -112,49 +144,21 @@ def render_acquisitions_guidance(
         padding: 10px 12px;
     ">
         <div style="margin-bottom:6px;"><b>County:</b> {chosen_title}</div>
-        <div style="margin-bottom:6px;"><b>MAO Tier:</b> {mao_tier}</div>
-        <div style="margin-bottom:6px;"><b>MAO Range:</b> {mao_range}</div>
-        <div style="margin-bottom:6px;"><b># Buyers (this county):</b> {buyer_count}</div>
-        <div><b># Buyers (touching counties):</b> {neighbor_unique_buyers}</div>
+        <div style="margin-bottom:6px;"><b>MAO Tier:</b> {mao_tier or "—"}</div>
+        <div style="margin-bottom:6px;"><b>MAO Range:</b> {mao_range or "—"}</div>
+
+        <div style="margin-bottom:6px;"><b>Actual close rate (county):</b> {cr_line}</div>
+        <div style="margin-bottom:6px;"><b>Actual close rate (tier):</b> {tier_line}</div>
+        {delta_line}
+
+        <div style="margin-bottom:6px;"><b># Buyers (this county):</b> {int(buyer_count)}</div>
+        <div><b># Buyers (touching counties):</b> {int(neighbor_unique_buyers)}</div>
     </div>""",
         unsafe_allow_html=True,
     )
 
-    if neighbor_breakdown is not None and not neighbor_breakdown.empty:
-        st.sidebar.markdown("#### Nearby county buyer breakdown")
-        st.sidebar.dataframe(neighbor_breakdown, use_container_width=True, hide_index=True)
-
     return chosen_key
 
-
-def render_rankings(rank_df: pd.DataFrame, *, default_rank_metric: str, rank_options: list[str]):
-    st.sidebar.markdown("## County rankings")
-
-    available = [c for c in rank_options if c in rank_df.columns]
-    if not available:
-        st.sidebar.info("No ranking metrics available.")
-        return None, None
-
-    if default_rank_metric not in available:
-        default_rank_metric = available[0]
-
-    rank_metric = st.sidebar.selectbox(
-        "Rank by",
-        available,
-        index=available.index(default_rank_metric),
-    )
-    top_n = st.sidebar.slider("Top N", 5, 50, 15, 5)
-
-    st.sidebar.dataframe(
-        rank_df.sort_values(rank_metric, ascending=False).head(top_n),
-        use_container_width=True,
-        hide_index=True,
-    )
-    return rank_metric, top_n
-
-###################################
-#  vvv Phase B update below vvv   #
-###################################
 
 def render_dispo_county_panel(
     county_options: list[str],
@@ -166,13 +170,8 @@ def render_dispo_county_panel(
     top_buyers_df: pd.DataFrame,
 ) -> str:
     """
-    Dispo sidebar panel that matches the Acquisitions-style layout:
-      - County quick search dropdown (kept in sync with map clicks)
-      - Stats: County, MAO Tier/Range, buyer counts
-      - Top buyers table (sold only)
-
-    Returns:
-      chosen_key (UPPER county key) or "" if placeholder selected.
+    Dispo sidebar panel that matches the Acquisitions-style layout.
+    Returns chosen_key (UPPER county key) or "" if placeholder selected.
     """
     st.sidebar.markdown("## County stats")
     st.sidebar.caption("County quick search")
@@ -184,12 +183,10 @@ def render_dispo_county_panel(
     title_to_key = {c.title(): c.upper() for c in county_options}
     key_to_title = {c.upper(): c.title() for c in county_options}
 
-    # Detect if the user just changed dropdown (Streamlit sets widget state BEFORE rerun)
     curr_dd = st.session_state.get("dispo_county_lookup", placeholder)
     prev_dd = st.session_state.get("_dispo_prev_county_lookup", curr_dd)
     user_changed_dropdown = curr_dd != prev_dd
 
-    # Only auto-sync dropdown from map if map was the source AND user didn't just change dropdown
     if st.session_state.get("county_source") == "map" and not user_changed_dropdown:
         sel_key = str(selected_county_key or "").strip().upper()
         if sel_key and sel_key in key_to_title:
@@ -206,10 +203,8 @@ def render_dispo_county_panel(
         help="Tip: you can also click a county on the map to update this.",
     )
 
-    # Track previous so we can detect real user changes next rerun
     st.session_state["_dispo_prev_county_lookup"] = chosen_title
 
-    # If placeholder, stop here
     if chosen_title == placeholder:
         st.sidebar.info("Select a county from the dropdown or click one on the map.")
         return ""
@@ -219,7 +214,6 @@ def render_dispo_county_panel(
         st.sidebar.info("Select a county from the dropdown or click one on the map.")
         return ""
 
-    # Render the Acq-style stats block
     st.sidebar.markdown(
         f"""
 **County:** {chosen_title}  
@@ -234,11 +228,7 @@ def render_dispo_county_panel(
     st.sidebar.caption(f"County: **{chosen_title}** (sold only)")
 
     if top_buyers_df is not None and not top_buyers_df.empty:
-        st.sidebar.dataframe(
-            top_buyers_df,
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.sidebar.dataframe(top_buyers_df, use_container_width=True, hide_index=True)
     else:
         st.sidebar.info("No sold buyers found for this county yet.")
 
