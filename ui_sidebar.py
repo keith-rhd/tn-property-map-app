@@ -25,9 +25,19 @@ def render_overall_stats(
     total_deals: int,
     total_buyers: int,
     close_rate_str: str,
+    title: str = "Overall stats",
+    scope_caption: str | None = None,
 ):
-    st.sidebar.markdown("## Overall stats")
+    """
+    Sidebar stats card.
+    Backwards compatible with the old signature, but now supports:
+    - title="County stats"
+    - scope_caption="County: **Davidson**"
+    """
+    st.sidebar.markdown(f"## {title}")
     st.sidebar.caption(f"Year: **{year_choice}**")
+    if scope_caption:
+        st.sidebar.caption(scope_caption)
 
     st.sidebar.markdown(
         f"""
@@ -56,6 +66,7 @@ def render_overall_stats(
 """,
         unsafe_allow_html=True,
     )
+
     st.sidebar.markdown("---")
 
 
@@ -75,11 +86,9 @@ def render_acquisitions_guidance(
     """
     st.sidebar.markdown("## MAO guidance")
 
-    # Dropdown quick search
-    # We display Title Case, but store as UPPERCASE keys.
-    options_title = [c.title() for c in county_options]
-    key_to_title = {c.upper(): c.title() for c in county_options}
-    title_to_key = {c.title(): c.upper() for c in county_options}
+    options_title = [c.title() for c in (county_options or [])]
+    key_to_title = {c.upper(): c.title() for c in (county_options or [])}
+    title_to_key = {c.title(): c.upper() for c in (county_options or [])}
 
     default_title = key_to_title.get(selected_county_key.upper(), options_title[0] if options_title else "—")
 
@@ -95,7 +104,6 @@ def render_acquisitions_guidance(
 
     st.sidebar.caption("Tip: you can also click a county on the map to update this.")
 
-    # Main card
     st.sidebar.markdown(
         f"""<div style="
         background: rgba(255,255,255,0.06);
@@ -112,14 +120,9 @@ def render_acquisitions_guidance(
         unsafe_allow_html=True,
     )
 
-    # Breakdown table (small + helpful)
     if neighbor_breakdown is not None and not neighbor_breakdown.empty:
         st.sidebar.markdown("#### Nearby county buyer breakdown")
-        st.sidebar.dataframe(
-            neighbor_breakdown,
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.sidebar.dataframe(neighbor_breakdown, use_container_width=True, hide_index=True)
 
     return chosen_key
 
@@ -129,7 +132,7 @@ def render_rankings(rank_df: pd.DataFrame, *, default_rank_metric: str, rank_opt
 
     available = [c for c in rank_options if c in rank_df.columns]
     if not available:
-        st.sidebar.warning("No ranking metrics available.")
+        st.sidebar.info("No ranking metrics available.")
         return None, None
 
     if default_rank_metric not in available:
