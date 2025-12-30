@@ -49,6 +49,12 @@ def _normalize_status(series: pd.Series) -> pd.Series:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_mao_tiers() -> pd.DataFrame:
+    """
+    IMPORTANT: Normalize counties to match the rest of the app:
+      "Davidson County" -> "DAVIDSON"
+    Returns:
+      County_clean_up, County_key, MAO_Tier, MAO_Range_Str
+    """
     out_cols = ["County_clean_up", "County_key", "MAO_Tier", "MAO_Range_Str"]
 
     tiers = _read_csv(MAO_TIERS_URL)
@@ -81,9 +87,15 @@ def load_mao_tiers() -> pd.DataFrame:
             break
 
     df = pd.DataFrame()
-    df["County_clean_up"] = tiers[county_col].astype(str).str.strip().str.upper()
-    # IMPORTANT: tiers sheet may already omit "County", but normalize key regardless
+
+    # ---- CRITICAL: strip " COUNTY" so options + lookups match GeoJSON + deals ----
+    county_raw = tiers[county_col].astype(str).fillna("").str.strip().str.upper()
+    county_clean = county_raw.str.replace(r"\s+COUNTY\b", "", regex=True).str.strip()
+    county_clean = county_clean.replace({"STEWART COUTY": "STEWART"})  # just in case
+
+    df["County_clean_up"] = county_clean
     df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
+
     df["MAO_Tier"] = tiers[tier_col].astype(str).str.strip() if tier_col else ""
     df["MAO_Range_Str"] = tiers[range_col].astype(str).str.strip() if range_col else ""
 
@@ -103,18 +115,10 @@ def load_data() -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
 
-    # -----------------------------
-    # County cleanup (CRITICAL FIX)
-    # -----------------------------
-    # Sheet has "Marion County", GeoJSON has "MARION"
+    # County cleanup (sheet has "X County", app/geojson uses "X")
     county_raw = df[C.county].astype(str).fillna("").str.strip().str.upper()
-
-    # Remove trailing " COUNTY" (and any standalone COUNTY word)
     county_clean = county_raw.str.replace(r"\s+COUNTY\b", "", regex=True).str.strip()
-
-    # Keep your historical fix
     county_clean = county_clean.replace({"STEWART COUTY": "STEWART"})
-
     df["County_clean_up"] = county_clean
 
     # Join key for tiers merge
@@ -130,7 +134,7 @@ def load_data() -> pd.DataFrame:
     df["Date_dt"] = pd.to_datetime(df.get(C.date), errors="coerce")
     df["Year"] = df["Date_dt"].dt.year
 
-    # Merge tiers (don’t crash app if tiers sheet has issues)
+    # Merge tiers
     try:
         tiers = load_mao_tiers()
         if not tiers.empty:
