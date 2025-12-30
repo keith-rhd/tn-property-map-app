@@ -77,3 +77,4 @@ def build_county_adjacency(tn_geo: dict) -> dict[str, list[str]]:
         adjacency[k] = sorted(set(adjacency[k]))
 
     return adjacency
+
