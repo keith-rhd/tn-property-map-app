@@ -59,7 +59,7 @@ if tiers is not None and not tiers.empty:
 
 # County options (prefer tiers list if available)
 tier_counties = (
-    sorted(set((tiers["County_clean_up"].dropna().astype(str).str.strip().str.upper().tolist())))
+    sorted(set(tiers["County_clean_up"].dropna().astype(str).str.strip().str.upper().tolist()))
     if tiers is not None and not tiers.empty
     else []
 )
@@ -79,7 +79,7 @@ col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
 with col1:
     mode = st.selectbox("Mode", ["Sold", "Cut Loose", "Both"], index=0)
 
-# Year options (must match filters.py: "All years")
+# Year options (match your filters.py convention)
 years = sorted([int(y) for y in df["Year"].dropna().unique().tolist() if int(y) > 0])
 year_options = ["All years"] + [str(y) for y in years]
 
@@ -90,7 +90,8 @@ with col3:
     map_labels = st.selectbox("Map labels", ["Health score", "Close rate", "Sold count"], index=0)
 
 # -----------------------------
-# Prepare filtered data  (FIXED: no mode arg)
+# Prepare filtered data
+# IMPORTANT: prepare_filtered_data DOES NOT accept mode= in your repo.
 # -----------------------------
 fd = prepare_filtered_data(df, year_choice=year_choice)
 
@@ -125,7 +126,6 @@ if team_view == "Dispo":
         else:
             buyer_choice = "All buyers"
             st.selectbox("Buyer", ["All buyers"], disabled=True)
-
     buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
 else:
     with col4:
@@ -310,5 +310,5 @@ if team_view == "Acquisitions":
 # Overall stats at bottom of sidebar (always)
 # -----------------------------
 overall = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
-overall["year_choice"] = year_choice  # optional, for display
+overall["year_choice"] = year_choice
 render_overall_stats(overall)
