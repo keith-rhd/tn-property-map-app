@@ -27,6 +27,7 @@ from enrich import (
 )
 from map_build import build_map
 from state import init_state, ensure_default_county
+from controllers import handle_map_click
 
 st.set_page_config(**DEFAULT_PAGE)
 init_state()
@@ -94,9 +95,7 @@ with col3:
 fd = prepare_filtered_data(df, year_choice=year_choice, mode=mode)
 
 # County buyer sets
-buyers_set_by_county = fd.df_time_sold.groupby("County_clean_up")["Buyer_clean"].agg(
-    lambda s: set([x for x in s if str(x).strip()])
-).to_dict()
+buyers_set_by_county = fd.df_time_sold.groupby("County_clean_up")["Buyer_clean"].agg(lambda s: set([x for x in s if str(x).strip()])).to_dict()
 buyer_count_by_county = {k: len(v) for k, v in buyers_set_by_county.items()}
 
 # Selected county (single source of truth)
@@ -179,45 +178,6 @@ grp = df_conv.groupby("County_clean_up")
 sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum()).to_dict()
 cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to_dict()
 
-# Compute actual close rate for any county
-def county_close_rate_pct(county_key: str) -> float | None:
-    if not county_key:
-        return None
-    s = int(sold_counts.get(county_key, 0))
-    c = int(cut_counts.get(county_key, 0))
-    t = s + c
-    if t <= 0:
-        return None
-    return (s / t) * 100.0
-
-# --- Tier vs actual close rate (Acq guidance) ---
-# Aggregate sold/cut by tier using tier mapping
-tier_sold = {}
-tier_cut = {}
-tier_deals = {}
-
-for county_key in set(list(sold_counts.keys()) + list(cut_counts.keys())):
-    tier = str(mao_tier_by_county.get(county_key, "")).strip().upper()
-    if not tier:
-        continue
-    s = int(sold_counts.get(county_key, 0))
-    c = int(cut_counts.get(county_key, 0))
-    tier_sold[tier] = tier_sold.get(tier, 0) + s
-    tier_cut[tier] = tier_cut.get(tier, 0) + c
-    tier_deals[tier] = tier_deals.get(tier, 0) + (s + c)
-
-def tier_close_rate_pct(tier: str) -> float | None:
-    t = str(tier or "").strip().upper()
-    if not t:
-        return None
-    s = int(tier_sold.get(t, 0))
-    c = int(tier_cut.get(t, 0))
-    tot = s + c
-    if tot <= 0:
-        return None
-    return (s / tot) * 100.0
-
-# Health score
 counties_for_health = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys())))
 health = compute_health_score(counties_for_health, sold_counts, cut_counts)
 
@@ -290,27 +250,9 @@ m = build_map(
 map_out = st_folium(m, width=None, height=650)
 
 # -----------------------------
-# Map click handling -> update selected county
+# Map click handling (Phase B3: extracted)
 # -----------------------------
-clicked = None
-try:
-    if map_out and isinstance(map_out, dict):
-        clicked = map_out.get("last_active_drawing") or map_out.get("last_clicked")
-except Exception:
-    clicked = None
-
-clicked_name = ""
-if clicked and isinstance(clicked, dict):
-    props = clicked.get("properties") or {}
-    clicked_name = str(props.get("NAME") or props.get("name") or "").strip().upper()
-
-if clicked_name and clicked_name in [c.upper() for c in all_county_options]:
-    if clicked_name != selected:
-        st.session_state["selected_county"] = clicked_name
-        st.session_state["county_source"] = "map"
-        st.session_state["last_map_clicked_county"] = clicked_name
-        st.session_state["acq_pending_county_title"] = clicked_name.title()
-        st.rerun()
+handle_map_click(map_out, all_county_options)
 
 # -----------------------------
 # Below-map panels (Phase B2)
@@ -323,7 +265,7 @@ render_selected_county_details(
 )
 
 # -----------------------------
-# Acquisitions sidebar guidance (now includes Tier vs Actual Close Rate)
+# Acquisitions sidebar guidance
 # -----------------------------
 if team_view == "Acquisitions":
     acq_selected = str(st.session_state.get("acq_selected_county", str(st.session_state.get("selected_county", "")))).strip().upper()
@@ -339,7 +281,6 @@ if team_view == "Acquisitions":
     for n in adjacency.get(acq_selected, []):
         neighbor_acq_buyers |= buyers_set_by_county.get(n, set())
 
-    acq_tier = str(mao_tier_by_county.get(acq_selected, "")).strip().upper()
     render_acquisitions_guidance(
         county_options=all_county_options,
         selected_county_key=acq_selected,
@@ -347,9 +288,6 @@ if team_view == "Acquisitions":
         mao_range=str(mao_range_by_county.get(acq_selected, "")) or "—",
         buyer_count=int(buyer_count_by_county.get(acq_selected, 0)),
         neighbor_unique_buyers=int(len(neighbor_acq_buyers)),
-        county_close_rate_pct=county_close_rate_pct(acq_selected),
-        tier_close_rate_pct=tier_close_rate_pct(acq_tier) if acq_tier else None,
-        tier_deals_n=int(tier_deals.get(acq_tier, 0)) if acq_tier else None,
     )
 
 # -----------------------------
