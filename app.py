@@ -79,9 +79,9 @@ col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
 with col1:
     mode = st.selectbox("Mode", ["Sold", "Cut Loose", "Both"], index=0)
 
-# Year options
-years = sorted([y for y in df["Year"].dropna().unique().tolist() if int(y) > 0])
-year_options = ["All"] + [str(int(y)) for y in years]
+# Year options (must match filters.py: "All years")
+years = sorted([int(y) for y in df["Year"].dropna().unique().tolist() if int(y) > 0])
+year_options = ["All years"] + [str(y) for y in years]
 
 with col2:
     year_choice = st.selectbox("Year", year_options, index=0)
@@ -90,9 +90,9 @@ with col3:
     map_labels = st.selectbox("Map labels", ["Health score", "Close rate", "Sold count"], index=0)
 
 # -----------------------------
-# Prepare filtered data
+# Prepare filtered data  (FIXED: no mode arg)
 # -----------------------------
-fd = prepare_filtered_data(df, year_choice=year_choice, mode=mode)
+fd = prepare_filtered_data(df, year_choice=year_choice)
 
 # County buyer sets (sold only)
 buyers_set_by_county = fd.df_time_sold.groupby("County_clean_up")["Buyer_clean"].agg(
@@ -168,7 +168,7 @@ ctx = build_context(
 )
 
 # -----------------------------
-# Dispo sidebar county panel (now via ctx)
+# Dispo sidebar county panel (via ctx)
 # -----------------------------
 if team_view == "Dispo":
     chosen_key = render_dispo_sidebar(ctx)
@@ -280,12 +280,12 @@ if clicked_name and clicked_name in [c.upper() for c in all_county_options]:
         st.rerun()
 
 # -----------------------------
-# Below-map panels (now via ctx)
+# Below-map panels (via ctx)
 # -----------------------------
 render_selected_county_details_ctx(ctx)
 
 # -----------------------------
-# Acquisitions sidebar guidance (now via ctx)
+# Acquisitions sidebar guidance (via ctx)
 # -----------------------------
 if team_view == "Acquisitions":
     acq_selected = str(st.session_state.get("acq_selected_county", str(st.session_state.get("selected_county", "")))).strip().upper()
@@ -304,11 +304,11 @@ if team_view == "Acquisitions":
     ctx["acq_selected"] = acq_selected
     ctx["neighbor_unique_buyers_acq"] = int(len(neighbor_acq_buyers))
 
-    # (If you later want: chosen = render_acq_sidebar(ctx) and sync it like Dispo)
     render_acq_sidebar(ctx)
 
 # -----------------------------
 # Overall stats at bottom of sidebar (always)
 # -----------------------------
 overall = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
+overall["year_choice"] = year_choice  # optional, for display
 render_overall_stats(overall)
