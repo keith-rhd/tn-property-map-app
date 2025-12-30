@@ -74,4 +74,3 @@ class Cols:
     date: str = "Date"
 
 C = Cols()
-
