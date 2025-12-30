@@ -17,17 +17,17 @@ from ui_sidebar import (
     render_team_view_toggle,
     render_overall_stats,
     render_rankings,
-    render_acquisitions_guidance,
-    render_dispo_county_panel,
+    render_dispo_sidebar,
+    render_acq_sidebar,
 )
-from ui_panels import render_selected_county_details
+from ui_panels import render_selected_county_details_ctx
 from enrich import (
     build_top_buyers_dict,
     enrich_geojson_properties,
 )
 from map_build import build_map
 from state import init_state, ensure_default_county
-from controllers import handle_map_click
+from context import build_context
 
 st.set_page_config(**DEFAULT_PAGE)
 init_state()
@@ -94,8 +94,10 @@ with col3:
 # -----------------------------
 fd = prepare_filtered_data(df, year_choice=year_choice, mode=mode)
 
-# County buyer sets
-buyers_set_by_county = fd.df_time_sold.groupby("County_clean_up")["Buyer_clean"].agg(lambda s: set([x for x in s if str(x).strip()])).to_dict()
+# County buyer sets (sold only)
+buyers_set_by_county = fd.df_time_sold.groupby("County_clean_up")["Buyer_clean"].agg(
+    lambda s: set([x for x in s if str(x).strip()])
+).to_dict()
 buyer_count_by_county = {k: len(v) for k, v in buyers_set_by_county.items()}
 
 # Selected county (single source of truth)
@@ -104,7 +106,7 @@ if not selected:
     selected = (all_county_options[0] if all_county_options else "")
     st.session_state["selected_county"] = selected
 
-# Neighbor unique buyers (touching counties) for selected
+# Neighbor unique buyers for selected county
 neighbors = adjacency.get(selected, []) if selected else []
 neighbor_buyers_u = set()
 for n in neighbors:
@@ -145,26 +147,31 @@ df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
 
 # -----------------------------
-# Dispo sidebar county panel (Phase B1)
+# Build ctx (Phase B2)
+# -----------------------------
+ctx = build_context(
+    team_view=team_view,
+    mode=mode,
+    year_choice=year_choice,
+    map_labels=map_labels,
+    all_county_options=all_county_options,
+    adjacency=adjacency,
+    fd=fd,
+    df_view=df_view,
+    selected=selected,
+    mao_tier_by_county=mao_tier_by_county,
+    mao_range_by_county=mao_range_by_county,
+    buyers_set_by_county=buyers_set_by_county,
+    buyer_count_by_county=buyer_count_by_county,
+    neighbor_unique_buyers=neighbor_unique_buyers,
+    top_buyers_dict=top_buyers_dict,
+)
+
+# -----------------------------
+# Dispo sidebar county panel (now via ctx)
 # -----------------------------
 if team_view == "Dispo":
-    top_list = (top_buyers_dict.get(selected, []) or [])[:10]
-    top_df = (
-        pd.DataFrame(top_list, columns=["Buyer", "Sold deals"])
-        if top_list
-        else pd.DataFrame(columns=["Buyer", "Sold deals"])
-    )
-
-    chosen_key = render_dispo_county_panel(
-        county_options=all_county_options,
-        selected_county_key=selected,
-        mao_tier=str(mao_tier_by_county.get(selected, "")) or "—",
-        mao_range=str(mao_range_by_county.get(selected, "")) or "—",
-        buyer_count=int(buyer_count_by_county.get(selected, 0)),
-        neighbor_unique_buyers=int(neighbor_unique_buyers),
-        top_buyers_df=top_df,
-    )
-
+    chosen_key = render_dispo_sidebar(ctx)
     if chosen_key and chosen_key != selected:
         st.session_state["selected_county"] = chosen_key
         st.session_state["county_source"] = "dropdown"
@@ -250,22 +257,35 @@ m = build_map(
 map_out = st_folium(m, width=None, height=650)
 
 # -----------------------------
-# Map click handling (Phase B3: extracted)
+# Map click handling -> update selected county
 # -----------------------------
-handle_map_click(map_out, all_county_options)
+clicked = None
+try:
+    if map_out and isinstance(map_out, dict):
+        clicked = map_out.get("last_active_drawing") or map_out.get("last_clicked")
+except Exception:
+    clicked = None
+
+clicked_name = ""
+if clicked and isinstance(clicked, dict):
+    props = clicked.get("properties") or {}
+    clicked_name = str(props.get("NAME") or props.get("name") or "").strip().upper()
+
+if clicked_name and clicked_name in [c.upper() for c in all_county_options]:
+    if clicked_name != selected:
+        st.session_state["selected_county"] = clicked_name
+        st.session_state["county_source"] = "map"
+        st.session_state["last_map_clicked_county"] = clicked_name
+        st.session_state["acq_pending_county_title"] = clicked_name.title()
+        st.rerun()
 
 # -----------------------------
-# Below-map panels (Phase B2)
+# Below-map panels (now via ctx)
 # -----------------------------
-render_selected_county_details(
-    df_view=df_view,
-    selected_county_key=st.session_state.get("selected_county", ""),
-    df_sold=fd.df_time_sold,
-    df_cut=fd.df_time_cut,
-)
+render_selected_county_details_ctx(ctx)
 
 # -----------------------------
-# Acquisitions sidebar guidance
+# Acquisitions sidebar guidance (now via ctx)
 # -----------------------------
 if team_view == "Acquisitions":
     acq_selected = str(st.session_state.get("acq_selected_county", str(st.session_state.get("selected_county", "")))).strip().upper()
@@ -281,14 +301,11 @@ if team_view == "Acquisitions":
     for n in adjacency.get(acq_selected, []):
         neighbor_acq_buyers |= buyers_set_by_county.get(n, set())
 
-    render_acquisitions_guidance(
-        county_options=all_county_options,
-        selected_county_key=acq_selected,
-        mao_tier=str(mao_tier_by_county.get(acq_selected, "")) or "—",
-        mao_range=str(mao_range_by_county.get(acq_selected, "")) or "—",
-        buyer_count=int(buyer_count_by_county.get(acq_selected, 0)),
-        neighbor_unique_buyers=int(len(neighbor_acq_buyers)),
-    )
+    ctx["acq_selected"] = acq_selected
+    ctx["neighbor_unique_buyers_acq"] = int(len(neighbor_acq_buyers))
+
+    # (If you later want: chosen = render_acq_sidebar(ctx) and sync it like Dispo)
+    render_acq_sidebar(ctx)
 
 # -----------------------------
 # Overall stats at bottom of sidebar (always)
