@@ -50,8 +50,14 @@ def _normalize_status(series: pd.Series) -> pd.Series:
 @st.cache_data(ttl=300, show_spinner=False)
 def load_mao_tiers() -> pd.DataFrame:
     """
-    IMPORTANT: Normalize counties to match the rest of the app:
+    Loads MAO tiers from the MAO Tiers tab.
+
+    Your sheet format (from the Excel you uploaded) is:
+      County | Tier | MAO Min | MAO Max | (extra legend columns...)
+
+    We normalize counties so:
       "Davidson County" -> "DAVIDSON"
+
     Returns:
       County_clean_up, County_key, MAO_Tier, MAO_Range_Str
     """
@@ -72,32 +78,73 @@ def load_mao_tiers() -> pd.DataFrame:
     if county_col is None:
         county_col = tiers.columns[0]
 
-    # Find tier column
+    # Find tier column (prefer exact "Tier" / "MAO Tier")
     tier_col = None
     for c in tiers.columns:
-        if str(c).strip().lower() in ("mao tier", "mao_tier", "tier"):
+        lc = str(c).strip().lower()
+        if lc in ("tier", "mao tier", "mao_tier"):
             tier_col = c
             break
 
-    # Find range column
+    # Find MAO range string column (optional)
     range_col = None
     for c in tiers.columns:
-        if str(c).strip().lower() in ("mao range", "mao_range", "range"):
+        lc = str(c).strip().lower()
+        if lc in ("mao range", "mao_range", "range"):
             range_col = c
             break
 
+    # Find MAO Min/Max columns (your sheet uses these)
+    min_col = None
+    max_col = None
+    for c in tiers.columns:
+        lc = str(c).strip().lower()
+        if lc in ("mao min", "mao_min", "min"):
+            min_col = c
+        if lc in ("mao max", "mao_max", "max"):
+            max_col = c
+
     df = pd.DataFrame()
 
-    # ---- CRITICAL: strip " COUNTY" so options + lookups match GeoJSON + deals ----
+    # Normalize county display name to match GeoJSON + deals
     county_raw = tiers[county_col].astype(str).fillna("").str.strip().str.upper()
     county_clean = county_raw.str.replace(r"\s+COUNTY\b", "", regex=True).str.strip()
     county_clean = county_clean.replace({"STEWART COUTY": "STEWART"})  # just in case
-
     df["County_clean_up"] = county_clean
-    df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
 
+    df["County_key"] = df["County_clean_up"].apply(_normalize_county_key)
     df["MAO_Tier"] = tiers[tier_col].astype(str).str.strip() if tier_col else ""
-    df["MAO_Range_Str"] = tiers[range_col].astype(str).str.strip() if range_col else ""
+
+    # Build MAO_Range_Str
+    if range_col and range_col in tiers.columns:
+        # If the sheet ever adds a single "MAO Range" text column, use it
+        df["MAO_Range_Str"] = tiers[range_col].astype(str).str.strip()
+    elif min_col and max_col and min_col in tiers.columns and max_col in tiers.columns:
+        # Convert decimals like 0.68 into "68%–72%"
+        def to_pct(x):
+            try:
+                v = float(x)
+                if v <= 1.0:
+                    v *= 100.0
+                return v
+            except Exception:
+                return None
+
+        mins = tiers[min_col].apply(to_pct)
+        maxs = tiers[max_col].apply(to_pct)
+
+        def fmt_range(lo, hi):
+            if lo is None and hi is None:
+                return ""
+            if lo is None:
+                return f"≤{hi:.0f}%"
+            if hi is None:
+                return f"≥{lo:.0f}%"
+            return f"{lo:.0f}%–{hi:.0f}%"
+
+        df["MAO_Range_Str"] = [fmt_range(lo, hi) for lo, hi in zip(mins, maxs)]
+    else:
+        df["MAO_Range_Str"] = ""
 
     return df[out_cols]
 
