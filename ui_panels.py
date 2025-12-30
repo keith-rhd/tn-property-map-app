@@ -14,8 +14,6 @@ def render_selected_county_details(
     Below-map panel:
       - Selected county summary stats (sold/cut/total/close rate)
       - Properties table for that county (based on df_view filters)
-
-    Phase B2: extracted from app.py (no feature changes).
     """
     st.markdown("### Selected county details")
 
@@ -24,11 +22,8 @@ def render_selected_county_details(
         st.info("Select a county from the sidebar or click one on the map.")
         return
 
-    # Properties table (reflects current filters/mode/buyer selection via df_view)
     county_props = build_county_properties_view(df_view, sel_key)
 
-    # Summary stats always based on sold/cut frames (not df_view),
-    # so the numbers remain consistent with the rest of the app.
     sold_scope = df_sold[df_sold["County_clean_up"] == sel_key]
     cut_scope = df_cut[df_cut["County_clean_up"] == sel_key]
     cstats = compute_overall_stats(sold_scope, cut_scope)
@@ -49,3 +44,23 @@ def render_selected_county_details(
     )
 
     st.dataframe(county_props, use_container_width=True, hide_index=True)
+
+
+# -------------------------------------------------------------------
+# Phase B2 wrapper: pass ctx dict
+# -------------------------------------------------------------------
+def render_selected_county_details_ctx(ctx: dict) -> None:
+    fd = ctx.get("fd")
+    df_view = ctx.get("df_view")
+    selected = str(ctx.get("selected", "")).strip().upper()
+
+    if fd is None or df_view is None:
+        st.info("Data is still loading…")
+        return
+
+    render_selected_county_details(
+        df_view=df_view,
+        selected_county_key=selected,
+        df_sold=fd.df_time_sold,
+        df_cut=fd.df_time_cut,
+    )
