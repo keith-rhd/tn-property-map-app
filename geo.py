@@ -7,7 +7,7 @@ TN_GEOJSON_URL = "https://raw.githubusercontent.com/plotly/datasets/master/geojs
 TN_STATE_FIPS = "47"
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_tn_geojson() -> dict:
     resp = requests.get(TN_GEOJSON_URL, timeout=30)
     resp.raise_for_status()
@@ -20,7 +20,7 @@ def load_tn_geojson() -> dict:
     return {"type": "FeatureCollection", "features": tn_features}
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def build_county_adjacency(tn_geo: dict) -> dict[str, list[str]]:
     """
     Build an adjacency mapping: COUNTY_NAME_UPPER -> [NEIGHBOR_COUNTY_NAME_UPPER, ...]
@@ -42,15 +42,19 @@ def build_county_adjacency(tn_geo: dict) -> dict[str, list[str]]:
 
     for f in features:
         props = f.get("properties", {}) or {}
-        name = str(props.get("NAME", "")).strip().upper()
+        name = (props.get("NAME") or "").strip().upper()
         geom = f.get("geometry")
 
         if not name or not geom:
             continue
 
         try:
-            geoms.append(shape(geom))
+            s = shape(geom)
+            # Some geometries can be invalid; buffer(0) is a common fix attempt.
+            if not s.is_valid:
+                s = s.buffer(0)
             names.append(name)
+            geoms.append(s)
         except Exception:
             # If a geometry is malformed, skip it.
             continue
