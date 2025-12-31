@@ -24,6 +24,15 @@ from enrich import (
     build_county_properties_view,
     enrich_geojson_properties,
 )
+
+from app_sections import (
+    compute_buyer_context,
+    render_acquisitions_sidebar,
+    render_dispo_county_quick_lookup,
+    handle_map_click,
+    render_below_map_panel,
+)
+
 from map_build import build_map
 
 def init_state():
@@ -118,73 +127,21 @@ fd = prepare_filtered_data(df, year_choice)
 # -----------------------------
 # Buyers per county (sold only) (used in map enrichment & panels)
 # -----------------------------
-df_sold_buyers = fd.df_time_sold.copy()
-if "Buyer_clean" in df_sold_buyers.columns:
-    df_sold_buyers["Buyer_clean"] = df_sold_buyers["Buyer_clean"].astype(str).str.strip()
-else:
-    df_sold_buyers["Buyer_clean"] = ""
-
-buyer_count_by_county = (
-    df_sold_buyers[df_sold_buyers["Buyer_clean"] != ""]
-    .groupby("County_clean_up")["Buyer_clean"]
-    .nunique()
-    .to_dict()
-)
-
+df_sold_buyers, buyer_count_by_county, buyers_set_by_county = compute_buyer_context(fd)
 # -----------------------------
 # Acquisitions sidebar (MAO guidance + quick search + nearby buyers)
 # -----------------------------
-if team_view == "Acquisitions":
-    if "acq_pending_county_title" in st.session_state:
-        st.session_state["acq_county_select"] = st.session_state["acq_pending_county_title"]
-        del st.session_state["acq_pending_county_title"]
-
-    selected = st.session_state.get("acq_selected_county")
-    if not selected:
-        selected = "DAVIDSON" if "DAVIDSON" in [c.upper() for c in all_county_options] else (all_county_options[0] if all_county_options else "")
-    selected = str(selected).strip().upper()
-
-    buyer_count = int(buyer_count_by_county.get(selected, 0))
-
-    buyers_set_by_county = (
-        df_sold_buyers[df_sold_buyers["Buyer_clean"] != ""]
-        .groupby("County_clean_up")["Buyer_clean"]
-        .apply(lambda s: set(s.dropna().tolist()))
-        .to_dict()
-    )
-
-    neighbors = adjacency.get(selected, [])
-    neighbor_buyers_union = set()
-    neighbor_rows = []
-    for n in neighbors:
-        bset = buyers_set_by_county.get(n, set())
-        neighbor_buyers_union |= bset
-        neighbor_rows.append({"County": n.title(), "# Buyers": len(bset)})
-
-    neighbor_unique_buyers = len(neighbor_buyers_union)
-
-    neighbor_breakdown = pd.DataFrame(neighbor_rows)
-    if not neighbor_breakdown.empty:
-        neighbor_breakdown = neighbor_breakdown.sort_values("# Buyers", ascending=False).head(10)
-
-    chosen_key = render_acquisitions_guidance(
-        county_options=all_county_options,
-        selected_county_key=selected,
-        mao_tier=str(mao_tier_by_county.get(selected, "")) or "—",
-        mao_range=str(mao_range_by_county.get(selected, "")) or "—",
-        buyer_count=buyer_count,
-        neighbor_unique_buyers=neighbor_unique_buyers,
-        neighbor_breakdown=neighbor_breakdown,
-    )
-
-    if chosen_key and chosen_key != selected:
-        st.session_state["acq_selected_county"] = chosen_key
-        st.session_state["selected_county"] = chosen_key
-        st.session_state["county_source"] = "dropdown"  # keep consistent
-        st.rerun()
-
-    st.sidebar.markdown("---")
-
+render_acquisitions_sidebar(
+    team_view=team_view,
+    all_county_options=all_county_options,
+    adjacency=adjacency,
+    df_sold_buyers=df_sold_buyers,
+    buyer_count_by_county=buyer_count_by_county,
+    buyers_set_by_county=buyers_set_by_county,
+    mao_tier_by_county=mao_tier_by_county,
+    mao_range_by_county=mao_range_by_county,
+    render_acquisitions_guidance=render_acquisitions_guidance,
+)
 # -----------------------------
 # Buyer controls (Dispo view only)
 # -----------------------------
@@ -220,112 +177,15 @@ df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
 # -----------------------------
 # Dispo: County quick lookup (Acq-style format)
 # -----------------------------
-if team_view == "Dispo":
-    st.sidebar.markdown("## County stats")
-    st.sidebar.caption("County quick search")
-
-    placeholder = "— Select a county —"
-    county_titles = [c.title() for c in all_county_options]
-    options_title = [placeholder] + county_titles
-    title_to_key = {c.title(): c.upper() for c in all_county_options}
-    key_to_title = {c.upper(): c.title() for c in all_county_options}
-
-    # Detect if the user just changed the dropdown (Streamlit sets widget state BEFORE rerun)
-    curr_dd = st.session_state.get("dispo_county_lookup", placeholder)
-    prev_dd = st.session_state.get("_dispo_prev_county_lookup", curr_dd)
-    user_changed_dropdown = curr_dd != prev_dd
-
-    # Only auto-sync dropdown from map if the map was last source AND user didn't just change dropdown
-    if st.session_state.get("county_source") == "map" and not user_changed_dropdown:
-        sel_key = str(st.session_state.get("selected_county", "")).strip().upper()
-        if sel_key and sel_key in key_to_title:
-            st.session_state["dispo_county_lookup"] = key_to_title[sel_key]
-
-    st.session_state.setdefault("dispo_county_lookup", placeholder)
-
-    chosen_title = st.sidebar.selectbox(
-        "County quick search",
-        options_title,
-        index=options_title.index(st.session_state["dispo_county_lookup"])
-        if st.session_state["dispo_county_lookup"] in options_title
-        else 0,
-        key="dispo_county_lookup",
-        label_visibility="collapsed",
-        help="Use this if you can’t easily click the county on the map.",
-    )
-
-    # Persist previous value for next rerun
-    st.session_state["_dispo_prev_county_lookup"] = st.session_state.get("dispo_county_lookup", placeholder)
-
-    st.sidebar.caption("Tip: you can also click a county on the map to update this.")
-
-    if chosen_title == placeholder:
-        st.sidebar.info("Select a county to see Dispo stats here.")
-        st.sidebar.markdown("---")
-    else:
-        new_key = title_to_key.get(chosen_title, "").strip().upper()
-        prev_key = str(st.session_state.get("selected_county", "")).strip().upper()
-
-        # If dropdown changed county, make it the source of truth and rerun
-        if new_key and new_key != prev_key:
-            st.session_state["selected_county"] = new_key
-            st.session_state["county_source"] = "dropdown"
-            st.rerun()
-
-        # County scope data (already filtered by year + view filters via fd)
-        sold_scope = fd.df_time_sold[fd.df_time_sold["County_clean_up"] == new_key]
-        cut_scope = fd.df_time_cut[fd.df_time_cut["County_clean_up"] == new_key]
-        cstats = compute_overall_stats(sold_scope, cut_scope)
-
-        sold_ct = int(cstats["sold_total"])
-        cut_ct = int(cstats["cut_total"])
-        total_ct = int(cstats["total_deals"])
-        buyer_ct = int(cstats["total_buyers"])
-        close_rate_str = str(cstats["close_rate_str"])
-        
-        # Acq-style card
-        st.sidebar.markdown(
-            f"""<div style="
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.14);
-            border-radius: 10px;
-            padding: 10px 12px;
-        ">
-            <div style="margin-bottom:6px;"><b>County:</b> {chosen_title}</div>
-            <div style="margin-bottom:6px;"><b>Sold:</b> {sold_ct}</div>
-            <div style="margin-bottom:6px;"><b>Cut loose:</b> {cut_ct}</div>
-            <div style="margin-bottom:6px;"><b>Total deals:</b> {total_ct}</div>
-            <div style="margin-bottom:6px;"><b># Buyers:</b> {buyer_ct}</div>
-            <div><b>Close rate:</b> {close_rate_str}</div>
-        </div>""",
-            unsafe_allow_html=True,
-        )
-
-        st.sidebar.markdown("---")
-
-        # Top buyers in this county (sold-only, respects current year filter via fd.df_time_sold)
-        top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
-        top_list = (top_buyers_dict.get(new_key, []) or [])[:10]
-
-        st.sidebar.markdown("## Top buyers in selected county")
-        st.sidebar.caption(f"County: **{chosen_title}** (sold only)")
-        if top_list:
-            st.sidebar.dataframe(
-                pd.DataFrame(top_list, columns=["Buyer", "Sold deals"]),
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.sidebar.info("No sold buyers found for this county yet.")
-
-        st.sidebar.markdown("---")
-
-
+render_dispo_county_quick_lookup(
+    team_view=team_view,
+    all_county_options=all_county_options,
+    fd=fd,
+)
 # -----------------------------
 # Build top buyers dict (sold only)
 # -----------------------------
 top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
-
 # -----------------------------
 # County totals for sold/cut
 # -----------------------------
@@ -439,12 +299,12 @@ m = build_map(
 # -----------------------------
 # Render map and capture clicks
 # -----------------------------
-map_state = st_folium(m, height=650, use_container_width=True)
-
-
-def _extract_clicked_county_name(state: dict) -> str | None:
-    if not isinstance(state, dict):
-        return None
+map_state = st_folium(
+    m,
+    height=650,
+    use_container_width=True,
+    returned_objects=["last_active_drawing", "last_object_clicked"],
+)
 
     lad = state.get("last_active_drawing")
     if isinstance(lad, dict):
@@ -460,84 +320,17 @@ def _extract_clicked_county_name(state: dict) -> str | None:
 
     return None
 
-
-clicked_name = _extract_clicked_county_name(map_state)
-clicked_key = str(clicked_name).strip().upper() if clicked_name else ""
-
-# IMPORTANT: st_folium often repeats the LAST click on every rerun.
-# Only treat it as a "new click" if the county actually changed.
-prev_map_click = str(st.session_state.get("last_map_clicked_county", "")).strip().upper()
-
-if clicked_key and clicked_key != prev_map_click:
-    st.session_state["last_map_clicked_county"] = clicked_key
-    st.session_state["selected_county"] = clicked_key
-    st.session_state["county_source"] = "map"
-
-    # Dispo: rerun so sidebar updates immediately
-    if team_view == "Dispo":
-        st.rerun()
-
-    # Acquisitions: update the acquisition-selected county too
-    if team_view == "Acquisitions":
-        st.session_state["acq_selected_county"] = clicked_key
-        st.session_state["acq_pending_county_title"] = clicked_key.title()
-        st.rerun()
-
+handle_map_click(map_state, team_view)
 
 # -----------------------------
 # BELOW MAP: County details panel (THIS IS THE TABLE YOU MISSED)
 # -----------------------------
-selected_for_panel = st.session_state.get("selected_county")
-if team_view == "Acquisitions":
-    selected_for_panel = st.session_state.get("acq_selected_county", selected_for_panel)
-
-if selected_for_panel:
-    ckey = str(selected_for_panel).strip().upper()
-
-    sold = int(sold_counts.get(ckey, 0))
-    cut = int(cut_counts.get(ckey, 0))
-    total = sold + cut
-    close_rate = (sold / total) if total > 0 else None
-    close_rate_str = f"{close_rate*100:.1f}%" if close_rate is not None else "N/A"
-
-    mao_tier = str(mao_tier_by_county.get(ckey, "")) or "—"
-    mao_range = str(mao_range_by_county.get(ckey, "")) or "—"
-    buyer_ct = int(buyer_count_by_county.get(ckey, 0))
-
-    st.markdown("---")
-    st.subheader(f"{ckey.title()} County details")
-
-    a, b, c, d, e = st.columns([1, 1, 1.2, 1.2, 1.6], gap="small")
-    a.metric("Sold", sold)
-    b.metric("Cut loose", cut)
-    c.metric("Close rate", close_rate_str)
-    d.metric("# Buyers", buyer_ct)
-    e.metric("MAO", f"{mao_tier} ({mao_range})" if mao_tier != "—" or mao_range != "—" else "—")
-
-    # Properties table (from df_view)
-    df_props = df_view[df_view["County_clean_up"] == ckey].copy()
-    if not df_props.empty:
-        show_cols = [C.address, C.city, C.status, C.buyer, C.date, C.sf_url]
-        show_cols = [col for col in show_cols if col in df_props.columns]
-        df_props = df_props[show_cols].copy()
-
-        # Make Salesforce link column if present
-        if C.sf_url in df_props.columns:
-            df_props["Salesforce"] = df_props[C.sf_url]
-            df_props = df_props.drop(columns=[C.sf_url])
-
-        st.markdown("#### Properties in current view")
-        st.dataframe(
-            df_props,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Salesforce": st.column_config.LinkColumn("Salesforce", display_text="Open"),
-            }
-            if "Salesforce" in df_props.columns
-            else None,
-        )
-    else:
-        st.info("No properties match the current filters for this county.")
-else:
-    st.caption("Tip: Click a county to see details below the map.")
+render_below_map_panel(
+    team_view=team_view,
+    df_view=df_view,
+    sold_counts=sold_counts,
+    cut_counts=cut_counts,
+    buyer_count_by_county=buyer_count_by_county,
+    mao_tier_by_county=mao_tier_by_county,
+    mao_range_by_county=mao_range_by_county,
+)
