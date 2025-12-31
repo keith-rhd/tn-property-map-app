@@ -26,7 +26,34 @@ from enrich import (
 )
 from map_build import build_map
 
+def init_state():
+    """
+    Central place for Streamlit session-state defaults.
+    Keeps state keys consistent and prevents regressions when the app grows.
+    """
+    defaults = {
+        # Which view is active
+        "team_view": "Dispo",
+
+        # County selection single source of truth
+        "selected_county": "",          # county KEY like "DAVIDSON"
+        "acq_selected_county": "",      # acquisitions county KEY like "DAVIDSON"
+        "county_source": "",            # "map" | "dropdown" | ""
+
+        # Map click bookkeeping (used to detect changes)
+        "last_map_clicked_county": "",
+
+        # Dispo dropdown bookkeeping (used to detect user-driven changes)
+        "_dispo_prev_county_lookup": "",
+    }
+
+    for k, v in defaults.items():
+        st.session_state.setdefault(k, v)
+
+
 st.set_page_config(**DEFAULT_PAGE)
+st.set_page_config(page_title="TN RHD Properties Map", layout="wide")
+init_state()
 st.title("Closed RHD Properties Map")
 
 df = load_data()
