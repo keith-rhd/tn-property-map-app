@@ -31,6 +31,7 @@ def init_state():
     Central place for Streamlit session-state defaults.
     Keeps state keys consistent and prevents regressions when the app grows.
     """
+    placeholder = "— Select a county —"
     defaults = {
         # Which view is active
         "team_view": "Dispo",
@@ -44,16 +45,18 @@ def init_state():
         "last_map_clicked_county": "",
 
         # Dispo dropdown bookkeeping (used to detect user-driven changes)
-        "_dispo_prev_county_lookup": "",
+        "dispo_county_lookup": placeholder,
+        "_dispo_prev_county_lookup": placeholder,
     }
 
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
 
 
+
 st.set_page_config(**DEFAULT_PAGE)
-st.set_page_config(page_title="TN RHD Properties Map", layout="wide")
 init_state()
+
 st.title("Closed RHD Properties Map")
 
 df = load_data()
