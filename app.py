@@ -306,20 +306,6 @@ map_state = st_folium(
     returned_objects=["last_active_drawing", "last_object_clicked"],
 )
 
-    lad = state.get("last_active_drawing")
-    if isinstance(lad, dict):
-        props = lad.get("properties", {})
-        if isinstance(props, dict) and props.get("NAME"):
-            return props.get("NAME")
-
-    loc = state.get("last_object_clicked")
-    if isinstance(loc, dict):
-        props = loc.get("properties", {})
-        if isinstance(props, dict) and props.get("NAME"):
-            return props.get("NAME")
-
-    return None
-
 handle_map_click(map_state, team_view)
 
 # -----------------------------
