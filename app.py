@@ -147,11 +147,38 @@ render_acquisitions_sidebar(
 # -----------------------------
 if team_view == "Dispo":
     with col4:
+        # Dispo Rep filter (only relevant when Sold data is being shown)
+        rep_options = []
+        if mode in ["Sold", "Both"] and "Dispo_Rep_clean" in fd.df_time_sold.columns:
+            rep_options = sorted(
+                [r for r in fd.df_time_sold["Dispo_Rep_clean"].dropna().astype(str).str.strip().unique().tolist() if r]
+            )
+
+        dispo_rep_choice = st.selectbox(
+            "Dispo rep",
+            ["All reps"] + rep_options,
+            index=0,
+            disabled=(mode == "Cut Loose"),
+            key="dispo_rep_choice",
+        )
+
+        rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
+
+        # Buyer filter
         if mode in ["Sold", "Both"]:
-            labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
+            # If rep is active, build buyer list from the rep-filtered sold dataframe so it feels consistent
+            df_sold_for_buyer = fd.df_time_sold
+            if rep_active and "Dispo_Rep_clean" in df_sold_for_buyer.columns:
+                df_sold_for_buyer = df_sold_for_buyer[df_sold_for_buyer["Dispo_Rep_clean"] == dispo_rep_choice]
+
+            buyers = sorted(
+                [b for b in df_sold_for_buyer.get("Buyer_clean", pd.Series([], dtype=str)).dropna().astype(str).str.strip().unique().tolist() if b]
+            )
+            labels = ["All buyers"] + buyers
             chosen_label = st.selectbox("Buyer", labels, index=0)
-            buyer_choice = label_to_buyer[chosen_label]
+            buyer_choice = chosen_label
         else:
+            rep_active = False
             buyer_choice = "All buyers"
             st.selectbox("Buyer", ["All buyers"], disabled=True)
 
@@ -161,6 +188,9 @@ else:
         buyer_choice = "All buyers"
         st.selectbox("Buyer", ["All buyers"], disabled=True)
     buyer_active = False
+    rep_active = False
+    dispo_rep_choice = "All reps"
+
 
 TOP_N = 10
 
