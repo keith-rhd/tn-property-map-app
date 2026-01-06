@@ -109,6 +109,10 @@ all_county_options = tier_counties if tier_counties else deal_counties
 team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
 st.session_state["team_view"] = team_view
 
+rep_active = False
+dispo_rep_choice = "All reps"
+
+
 # -----------------------------
 # Controls row (top)
 # -----------------------------
