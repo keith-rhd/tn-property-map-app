@@ -132,7 +132,10 @@ if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_time_sold_for
 # -----------------------------
 # Buyers per county (sold only) (used in map enrichment & panels)
 # -----------------------------
-df_sold_buyers, buyer_count_by_county, buyers_set_by_county = compute_buyer_context(fd)
+# buyer context should respect Dispo Rep filter (sold-only)
+fd_for_buyer_context = fd
+fd_for_buyer_context.df_time_sold = df_time_sold_for_view  # lightweight override
+df_sold_buyers, buyer_count_by_county, buyers_set_by_county = compute_buyer_context(fd_for_buyer_context)
 # -----------------------------
 # Acquisitions sidebar (MAO guidance + quick search + nearby buyers)
 # -----------------------------
