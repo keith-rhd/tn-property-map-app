@@ -115,13 +115,17 @@ def render_dispo_county_quick_lookup(
     team_view: str,
     all_county_options: list[str],
     fd,
+    df_time_sold_override: pd.DataFrame | None = None,
 ) -> None:
     """
     Renders your Dispo county quick search block.
-    Keeps the same session_state behavior and rerun logic.
+    If df_time_sold_override is provided, it is used for sold_scope + top buyers
+    (so Dispo Rep filtering stays consistent).
     """
     if team_view != "Dispo":
         return
+
+    df_time_sold_for_stats = df_time_sold_override if df_time_sold_override is not None else fd.df_time_sold
 
     st.sidebar.markdown("## County stats")
     st.sidebar.caption("County quick search")
@@ -170,7 +174,7 @@ def render_dispo_county_quick_lookup(
         st.session_state["county_source"] = "dropdown"
         st.rerun()
 
-    sold_scope = fd.df_time_sold[fd.df_time_sold["County_clean_up"] == new_key]
+    sold_scope = df_time_sold_for_stats[df_time_sold_for_stats["County_clean_up"] == new_key]
     cut_scope = fd.df_time_cut[fd.df_time_cut["County_clean_up"] == new_key]
     cstats = compute_overall_stats(sold_scope, cut_scope)
 
@@ -199,7 +203,7 @@ def render_dispo_county_quick_lookup(
 
     st.sidebar.markdown("---")
 
-    top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
+    top_buyers_dict = build_top_buyers_dict(df_time_sold_for_stats)
     top_list = (top_buyers_dict.get(new_key, []) or [])[:10]
 
     st.sidebar.markdown("## Top buyers in selected county")
