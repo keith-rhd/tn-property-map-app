@@ -26,7 +26,7 @@ from enrich import (
 )
 
 from app_sections import (
-    compute_buyer_context,
+    compute_buyer_context_from_df,
     render_acquisitions_sidebar,
     render_dispo_county_quick_lookup,
     handle_map_click,
