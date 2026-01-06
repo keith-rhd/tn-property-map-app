@@ -201,7 +201,10 @@ else:
     buyer_active = False
     rep_active = False
     dispo_rep_choice = "All reps"
-
+# Apply Dispo Rep filter to SOLD only (Cut Loose rows remain unchanged)
+df_time_sold_for_view = fd.df_time_sold
+if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_time_sold_for_view.columns:
+    df_time_sold_for_view = df_time_sold_for_view[df_time_sold_for_view["Dispo_Rep_clean"] == dispo_rep_choice]
 
 TOP_N = 10
 
