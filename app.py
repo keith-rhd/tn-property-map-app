@@ -104,7 +104,7 @@ st.session_state["team_view"] = team_view
 # -----------------------------
 # Controls row (top)
 # -----------------------------
-col1, col3, col4 = st.columns([1.1, 1.6, 1.7], gap="small")
+col1, col2, col3, col4 = st.columns([1.1, 1.4, 1.6, 1.7], gap="small")
 
 with col1:
     mode = st.radio("View", ["Sold", "Cut Loose", "Both"], index=0, horizontal=True)
@@ -127,8 +127,9 @@ rep_active = False
 dispo_rep_choice = "All reps"
 
 if team_view == "Dispo":
-    with col4:
-        # Dispo Rep options come from SOLD rows only (respect Year filter)
+
+    # --- Dispo Rep filter (col2) ---
+    with col2:
         rep_values = []
         if mode in ["Sold", "Both"] and "Dispo_Rep_clean" in fd.df_time_sold.columns:
             rep_values = sorted(
@@ -146,16 +147,18 @@ if team_view == "Dispo":
         dispo_rep_choice = st.selectbox(
             "Dispo rep",
             ["All reps"] + rep_values,
-            index=0 if st.session_state.get("dispo_rep_choice", "All reps") == "All reps" else
-                  (["All reps"] + rep_values).index(st.session_state.get("dispo_rep_choice", "All reps"))
-                  if st.session_state.get("dispo_rep_choice", "All reps") in (["All reps"] + rep_values) else 0,
+            index=0 if st.session_state.get("dispo_rep_choice", "All reps") == "All reps"
+            else (["All reps"] + rep_values).index(st.session_state.get("dispo_rep_choice", "All reps"))
+            if st.session_state.get("dispo_rep_choice", "All reps") in (["All reps"] + rep_values)
+            else 0,
             disabled=(mode == "Cut Loose"),
             key="dispo_rep_choice",
         )
 
         rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
 
-        # Buyer filter
+    # --- Buyer filter (col4) ---
+    with col4:
         if mode in ["Sold", "Both"]:
             labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
             chosen_label = st.selectbox("Buyer", labels, index=0)
@@ -167,9 +170,14 @@ if team_view == "Dispo":
     buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
 
 else:
+    # Keep layout aligned in Acquisitions view
+    with col2:
+        st.empty()
+
     with col4:
         buyer_choice = "All buyers"
         st.selectbox("Buyer", ["All buyers"], disabled=True)
+
     buyer_active = False
     rep_active = False
     dispo_rep_choice = "All reps"
