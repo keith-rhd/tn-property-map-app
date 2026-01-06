@@ -223,7 +223,7 @@ render_dispo_county_quick_lookup(
 # -----------------------------
 # Build top buyers dict (sold only)
 # -----------------------------
-top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
+top_buyers_dict = build_top_buyers_dict(df_time_sold_for_view)
 # -----------------------------
 # County totals for sold/cut
 # -----------------------------
