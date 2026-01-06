@@ -228,6 +228,12 @@ top_buyers_dict = build_top_buyers_dict(df_time_sold_for_view)
 # County totals for sold/cut
 # -----------------------------
 df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
+
+if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_conv.columns:
+    # keep all cut loose rows; filter only sold rows by rep
+    df_conv = df_conv[(df_conv["Status_norm"] != "sold") | (df_conv["Dispo_Rep_clean"] == dispo_rep_choice)]
+
+df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
 grp = df_conv.groupby("County_clean_up")
 sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum()).to_dict()
 cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to_dict()
