@@ -219,6 +219,7 @@ render_dispo_county_quick_lookup(
     team_view=team_view,
     all_county_options=all_county_options,
     fd=fd,
+    df_time_sold_override=df_time_sold_for_view,
 )
 # -----------------------------
 # Build top buyers dict (sold only)
