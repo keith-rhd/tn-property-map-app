@@ -293,7 +293,7 @@ if team_view == "Dispo":
 buyer_sold_counts = {}
 if buyer_active and mode in ["Sold", "Both"]:
     buyer_sold_counts = (
-        fd.df_time_sold[fd.df_time_sold["Buyer_clean"] == buyer_choice]
+        df_time_sold_for_view[df_time_sold_for_view["Buyer_clean"] == buyer_choice]
         .groupby("County_clean_up")
         .size()
         .to_dict()
