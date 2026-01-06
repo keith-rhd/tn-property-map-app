@@ -104,32 +104,46 @@ st.session_state["team_view"] = team_view
 # -----------------------------
 # Controls row (top)
 # -----------------------------
-col1, col2, col3, col4 = st.columns([1.1, 1.4, 1.6, 1.7], gap="small")
+col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
 
+# --- View ---
 with col1:
     mode = st.radio("View", ["Sold", "Cut Loose", "Both"], index=0, horizontal=True)
 
+# --- Year ---
 years_available = (
     sorted([int(y) for y in df["Year"].dropna().unique().tolist()])
     if "Year" in df.columns
     else []
 )
-with col3:
+with col2:
     year_choice = st.selectbox("Year", ["All years"] + years_available, index=0)
 
 # Filtered data bundle (immutable dataclass-ish object)
 fd = prepare_filtered_data(df, year_choice)
 
 # -------------------------------------------------
-# Dispo Rep + Buyer controls (Dispo only)
+# Buyer + Dispo Rep controls (Dispo only)
 # -------------------------------------------------
 rep_active = False
 dispo_rep_choice = "All reps"
 
 if team_view == "Dispo":
 
-    # --- Dispo Rep filter (col2) ---
-    with col2:
+    # --- Buyer filter ---
+    with col3:
+        if mode in ["Sold", "Both"]:
+            labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
+            chosen_label = st.selectbox("Buyer", labels, index=0)
+            buyer_choice = label_to_buyer[chosen_label]
+        else:
+            buyer_choice = "All buyers"
+            st.selectbox("Buyer", ["All buyers"], disabled=True)
+
+    buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
+
+    # --- Dispo Rep filter ---
+    with col4:
         rep_values = []
         if mode in ["Sold", "Both"] and "Dispo_Rep_clean" in fd.df_time_sold.columns:
             rep_values = sorted(
@@ -147,7 +161,8 @@ if team_view == "Dispo":
         dispo_rep_choice = st.selectbox(
             "Dispo rep",
             ["All reps"] + rep_values,
-            index=0 if st.session_state.get("dispo_rep_choice", "All reps") == "All reps"
+            index=0
+            if st.session_state.get("dispo_rep_choice", "All reps") == "All reps"
             else (["All reps"] + rep_values).index(st.session_state.get("dispo_rep_choice", "All reps"))
             if st.session_state.get("dispo_rep_choice", "All reps") in (["All reps"] + rep_values)
             else 0,
@@ -157,26 +172,14 @@ if team_view == "Dispo":
 
         rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
 
-    # --- Buyer filter (col4) ---
-    with col4:
-        if mode in ["Sold", "Both"]:
-            labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
-            chosen_label = st.selectbox("Buyer", labels, index=0)
-            buyer_choice = label_to_buyer[chosen_label]
-        else:
-            buyer_choice = "All buyers"
-            st.selectbox("Buyer", ["All buyers"], disabled=True)
-
-    buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
-
 else:
-    # Keep layout aligned in Acquisitions view
-    with col2:
-        st.empty()
-
-    with col4:
+    # Acquisitions view keeps layout aligned
+    with col3:
         buyer_choice = "All buyers"
         st.selectbox("Buyer", ["All buyers"], disabled=True)
+
+    with col4:
+        st.empty()
 
     buyer_active = False
     rep_active = False
