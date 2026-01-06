@@ -41,6 +41,31 @@ def compute_buyer_context(fd) -> tuple[pd.DataFrame, dict[str, int], dict[str, s
 
     return df_sold_buyers, buyer_count_by_county, buyers_set_by_county
 
+def compute_buyer_context_from_df(df_time_sold: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int], dict[str, set[str]]]:
+    """
+    Same as compute_buyer_context(fd) but takes a sold dataframe directly.
+    """
+    df_sold_buyers = df_time_sold.copy()
+    if "Buyer_clean" in df_sold_buyers.columns:
+        df_sold_buyers["Buyer_clean"] = df_sold_buyers["Buyer_clean"].astype(str).str.strip()
+    else:
+        df_sold_buyers["Buyer_clean"] = ""
+
+    buyer_count_by_county = (
+        df_sold_buyers[df_sold_buyers["Buyer_clean"] != ""]
+        .groupby("County_clean_up")["Buyer_clean"]
+        .nunique()
+        .to_dict()
+    )
+
+    buyers_set_by_county = (
+        df_sold_buyers[df_sold_buyers["Buyer_clean"] != ""]
+        .groupby("County_clean_up")["Buyer_clean"]
+        .apply(lambda s: set(s.dropna().tolist()))
+        .to_dict()
+    )
+
+    return df_sold_buyers, buyer_count_by_county, buyers_set_by_county
 
 # -----------------------------
 # Sidebar blocks
