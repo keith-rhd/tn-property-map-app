@@ -14,8 +14,6 @@ from enrich import build_top_buyers_dict
 
 
 
-    return df_sold_buyers, buyer_count_by_county, buyers_set_by_county
-
 def compute_buyer_context_from_df(df_time_sold: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int], dict[str, set[str]]]:
     """
     Same as compute_buyer_context(fd) but takes a sold dataframe directly.
