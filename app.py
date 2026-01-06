@@ -210,7 +210,7 @@ sel = Selection(
     top_n=int(TOP_N),
 )
 
-df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
+df_view = build_view_df(df_time_sold_for_view, fd.df_time_cut, sel)
 
 # -----------------------------
 # Dispo: County quick lookup (Acq-style format)
