@@ -97,6 +97,21 @@ def normalize_inputs(df: pd.DataFrame) -> pd.DataFrame:
     df["Date_dt"] = pd.to_datetime(df.get(C.date), errors="coerce")
     df["Year"] = df["Date_dt"].dt.year
 
+        # --- Dispo Rep (new column) ---
+    # Accept a few possible header spellings
+    dispo_col = None
+    for cand in ["Dispo Rep", "Dispo_Rep", "DispoRep", "DISPO REP"]:
+        if cand in df.columns:
+            dispo_col = cand
+            break
+
+    if dispo_col is None:
+        df["Dispo_Rep"] = ""
+    else:
+        df["Dispo_Rep"] = df[dispo_col]
+
+    df["Dispo_Rep_clean"] = df["Dispo_Rep"].astype(str).fillna("").str.strip()
+
     return df
 
 

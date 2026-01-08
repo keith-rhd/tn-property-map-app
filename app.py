@@ -26,7 +26,6 @@ from enrich import (
 )
 
 from app_sections import (
-    compute_buyer_context,
     render_acquisitions_sidebar,
     render_dispo_county_quick_lookup,
     handle_map_click,
@@ -35,6 +34,7 @@ from app_sections import (
 
 from map_build import build_map
 
+
 def init_state():
     """
     Central place for Streamlit session-state defaults.
@@ -42,25 +42,18 @@ def init_state():
     """
     placeholder = "— Select a county —"
     defaults = {
-        # Which view is active
         "team_view": "Dispo",
-
-        # County selection single source of truth
-        "selected_county": "",          # county KEY like "DAVIDSON"
-        "acq_selected_county": "",      # acquisitions county KEY like "DAVIDSON"
-        "county_source": "",            # "map" | "dropdown" | ""
-
-        # Map click bookkeeping (used to detect changes)
+        "selected_county": "",
+        "acq_selected_county": "",
+        "county_source": "",  # "map" | "dropdown" | ""
         "last_map_clicked_county": "",
-
-        # Dispo dropdown bookkeeping (used to detect user-driven changes)
         "dispo_county_lookup": placeholder,
         "_dispo_prev_county_lookup": placeholder,
+        # Dispo Rep filter memory (optional)
+        "dispo_rep_choice": "All reps",
     }
-
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
-
 
 
 st.set_page_config(**DEFAULT_PAGE)
@@ -77,7 +70,6 @@ if hasattr(C, "date") and C.date in df.columns:
     df[C.date] = pd.to_datetime(df[C.date], errors="coerce")
 
 if "Year" not in df.columns:
-    # Try to build Year if missing
     if hasattr(C, "date") and C.date in df.columns:
         df["Year"] = df[C.date].dt.year
 
@@ -112,24 +104,128 @@ st.session_state["team_view"] = team_view
 # -----------------------------
 # Controls row (top)
 # -----------------------------
-col1, col3, col4 = st.columns([1.1, 1.6, 1.7], gap="small")
+col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
 
+# --- View ---
 with col1:
     mode = st.radio("View", ["Sold", "Cut Loose", "Both"], index=0, horizontal=True)
 
-years_available = sorted([int(y) for y in df["Year"].dropna().unique().tolist()]) if "Year" in df.columns else []
-with col3:
+# --- Year ---
+years_available = (
+    sorted([int(y) for y in df["Year"].dropna().unique().tolist()])
+    if "Year" in df.columns
+    else []
+)
+with col2:
     year_choice = st.selectbox("Year", ["All years"] + years_available, index=0)
 
-# Filtered data bundle
+# Filtered data bundle (immutable dataclass-ish object)
 fd = prepare_filtered_data(df, year_choice)
 
+# -------------------------------------------------
+# Buyer + Dispo Rep controls (Dispo only)
+# -------------------------------------------------
+rep_active = False
+dispo_rep_choice = "All reps"
+
+if team_view == "Dispo":
+
+    # --- Buyer filter ---
+    with col3:
+        if mode in ["Sold", "Both"]:
+            labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
+            chosen_label = st.selectbox("Buyer", labels, index=0)
+            buyer_choice = label_to_buyer[chosen_label]
+        else:
+            buyer_choice = "All buyers"
+            st.selectbox("Buyer", ["All buyers"], disabled=True)
+
+    buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
+
+    # --- Dispo Rep filter ---
+    with col4:
+        rep_values = []
+        if mode in ["Sold", "Both"] and "Dispo_Rep_clean" in fd.df_time_sold.columns:
+            rep_values = sorted(
+                [
+                    r for r in fd.df_time_sold["Dispo_Rep_clean"]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .unique()
+                    .tolist()
+                    if r
+                ]
+            )
+
+        dispo_rep_choice = st.selectbox(
+            "Dispo rep",
+            ["All reps"] + rep_values,
+            index=0
+            if st.session_state.get("dispo_rep_choice", "All reps") == "All reps"
+            else (["All reps"] + rep_values).index(st.session_state.get("dispo_rep_choice", "All reps"))
+            if st.session_state.get("dispo_rep_choice", "All reps") in (["All reps"] + rep_values)
+            else 0,
+            disabled=(mode == "Cut Loose"),
+            key="dispo_rep_choice",
+        )
+
+        rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
+
+else:
+    # Acquisitions view keeps layout aligned
+    with col3:
+        buyer_choice = "All buyers"
+        st.selectbox("Buyer", ["All buyers"], disabled=True)
+
+    with col4:
+        dispo_rep_choice = "All reps"
+        st.selectbox("Dispo rep", ["All reps"], disabled=True, key="dispo_rep_choice")
+
+    buyer_active = False
+    rep_active = False
+    dispo_rep_choice = "All reps"
+
+
+TOP_N = 10
+
+# -------------------------------------------------
+# SOLD dataframe respecting Dispo Rep filter
+# (Cut loose remains unchanged)
+# -------------------------------------------------
+df_time_sold_for_view = fd.df_time_sold
+if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_time_sold_for_view.columns:
+    df_time_sold_for_view = df_time_sold_for_view[
+        df_time_sold_for_view["Dispo_Rep_clean"] == dispo_rep_choice
+    ]
+
+# -------------------------------------------------
+# Buyer context (sold-only)
+#  - In Dispo: respects rep filter
+#  - In Acq: uses full sold data (rep filter off anyway)
+# -------------------------------------------------
+df_sold_buyers = df_time_sold_for_view.copy() if team_view == "Dispo" else fd.df_time_sold.copy()
+if "Buyer_clean" in df_sold_buyers.columns:
+    df_sold_buyers["Buyer_clean"] = df_sold_buyers["Buyer_clean"].astype(str).str.strip()
+else:
+    df_sold_buyers["Buyer_clean"] = ""
+
+buyer_count_by_county = (
+    df_sold_buyers[df_sold_buyers["Buyer_clean"] != ""]
+    .groupby("County_clean_up")["Buyer_clean"]
+    .nunique()
+    .to_dict()
+)
+
+buyers_set_by_county = (
+    df_sold_buyers[df_sold_buyers["Buyer_clean"] != ""]
+    .groupby("County_clean_up")["Buyer_clean"]
+    .apply(lambda s: set(s.dropna().tolist()))
+    .to_dict()
+)
+
 # -----------------------------
-# Buyers per county (sold only) (used in map enrichment & panels)
-# -----------------------------
-df_sold_buyers, buyer_count_by_county, buyers_set_by_county = compute_buyer_context(fd)
-# -----------------------------
-# Acquisitions sidebar (MAO guidance + quick search + nearby buyers)
+# Acquisitions sidebar
 # -----------------------------
 render_acquisitions_sidebar(
     team_view=team_view,
@@ -142,28 +238,10 @@ render_acquisitions_sidebar(
     mao_range_by_county=mao_range_by_county,
     render_acquisitions_guidance=render_acquisitions_guidance,
 )
+
 # -----------------------------
-# Buyer controls (Dispo view only)
+# Build selection + view df
 # -----------------------------
-if team_view == "Dispo":
-    with col4:
-        if mode in ["Sold", "Both"]:
-            labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
-            chosen_label = st.selectbox("Buyer", labels, index=0)
-            buyer_choice = label_to_buyer[chosen_label]
-        else:
-            buyer_choice = "All buyers"
-            st.selectbox("Buyer", ["All buyers"], disabled=True)
-
-    buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
-else:
-    with col4:
-        buyer_choice = "All buyers"
-        st.selectbox("Buyer", ["All buyers"], disabled=True)
-    buyer_active = False
-
-TOP_N = 10
-
 sel = Selection(
     mode=mode,
     year_choice=str(year_choice),
@@ -172,24 +250,33 @@ sel = Selection(
     top_n=int(TOP_N),
 )
 
-df_view = build_view_df(fd.df_time_sold, fd.df_time_cut, sel)
+# IMPORTANT: pass rep-filtered SOLD df into build_view_df so the table/map respect Dispo rep
+df_view = build_view_df(df_time_sold_for_view, fd.df_time_cut, sel)
 
 # -----------------------------
-# Dispo: County quick lookup (Acq-style format)
+# Dispo: County quick lookup (rep-aware via override)
 # -----------------------------
 render_dispo_county_quick_lookup(
     team_view=team_view,
     all_county_options=all_county_options,
     fd=fd,
+    df_time_sold_override=df_time_sold_for_view,
 )
+
 # -----------------------------
-# Build top buyers dict (sold only)
+# Top buyers dict (sold only, rep-aware on Dispo)
 # -----------------------------
-top_buyers_dict = build_top_buyers_dict(fd.df_time_sold)
+top_buyers_dict = build_top_buyers_dict(df_time_sold_for_view if team_view == "Dispo" else fd.df_time_sold)
+
 # -----------------------------
 # County totals for sold/cut
+# (rep filter applies ONLY to sold rows in Dispo)
 # -----------------------------
 df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
+
+if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_conv.columns:
+    df_conv = df_conv[(df_conv["Status_norm"] != "sold") | (df_conv["Dispo_Rep_clean"] == dispo_rep_choice)]
+
 grp = df_conv.groupby("County_clean_up")
 sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum()).to_dict()
 cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to_dict()
@@ -233,9 +320,10 @@ else:
 
 # -----------------------------
 # Overall stats (Dispo only)
+# (uses rep-filtered sold df so close rate/stats match what user sees)
 # -----------------------------
 if team_view == "Dispo":
-    stats = compute_overall_stats(fd.df_time_sold, fd.df_time_cut)
+    stats = compute_overall_stats(df_time_sold_for_view, fd.df_time_cut)
     render_overall_stats(
         year_choice=year_choice,
         sold_total=stats["sold_total"],
@@ -249,7 +337,7 @@ if team_view == "Dispo":
 buyer_sold_counts = {}
 if buyer_active and mode in ["Sold", "Both"]:
     buyer_sold_counts = (
-        fd.df_time_sold[fd.df_time_sold["Buyer_clean"] == buyer_choice]
+        df_time_sold_for_view[df_time_sold_for_view["Buyer_clean"] == buyer_choice]
         .groupby("County_clean_up")
         .size()
         .to_dict()
@@ -309,7 +397,7 @@ map_state = st_folium(
 handle_map_click(map_state, team_view)
 
 # -----------------------------
-# BELOW MAP: County details panel (THIS IS THE TABLE YOU MISSED)
+# BELOW MAP: County details panel
 # -----------------------------
 render_below_map_panel(
     team_view=team_view,
