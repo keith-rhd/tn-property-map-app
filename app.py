@@ -179,11 +179,13 @@ else:
         st.selectbox("Buyer", ["All buyers"], disabled=True)
 
     with col4:
-        st.empty()
+        dispo_rep_choice = "All reps"
+        st.selectbox("Dispo rep", ["All reps"], disabled=True, key="dispo_rep_choice")
 
     buyer_active = False
     rep_active = False
     dispo_rep_choice = "All reps"
+
 
 TOP_N = 10
 
