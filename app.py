@@ -220,7 +220,10 @@ if team_view == "Sales Manager":
 # -----------------------------
 # Controls row (top)
 # -----------------------------
-col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
+if team_view == "Sales Manager":
+    col1, col2, col3, col4, col5 = st.columns([1.0, 1.4, 1.4, 1.5, 1.3], gap="small")
+else:
+    col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
 
 # --- View ---
 with col1:
@@ -292,7 +295,7 @@ if team_view == "Dispo":
         rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
 
 elif team_view == "Sales Manager":
-    # Sales Manager gets Market + Acquisition Rep controls
+    # Sales Manager: all filters on the top row
     with col3:
         markets = []
         if "Market_clean" in df.columns:
@@ -305,10 +308,16 @@ elif team_view == "Sales Manager":
             acq_reps = sorted([r for r in df["Acquisition_Rep_clean"].dropna().astype(str).str.strip().unique().tolist() if r])
         acq_rep_choice = st.selectbox("Acquisition Rep", ["All acquisition reps"] + acq_reps, index=0)
 
+    with col5:
+        dispo_reps = []
+        if "Dispo_Rep_clean" in df.columns:
+            dispo_reps = sorted([r for r in df["Dispo_Rep_clean"].dropna().astype(str).str.strip().unique().tolist() if r])
+        dispo_rep_choice_sm = st.selectbox("Dispo rep", ["All reps"] + dispo_reps, index=0)
+
     buyer_choice = "All buyers"
     buyer_active = False
     rep_active = False
-    dispo_rep_choice = "All reps"
+    dispo_rep_choice = "All reps"  # keep stable for other logic
 
 else:
     with col3:
@@ -322,6 +331,7 @@ else:
     buyer_active = False
     rep_active = False
     dispo_rep_choice = "All reps"
+    dispo_rep_choice_sm = "All reps"
 
 TOP_N = 10
 
@@ -336,6 +346,12 @@ if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_time_sold_for
     ]
 
 df_time_cut_for_view = fd.df_time_cut
+
+if team_view == "Sales Manager":
+    if dispo_rep_choice_sm != "All reps" and "Dispo_Rep_clean" in df_time_sold_for_view.columns:
+        df_time_sold_for_view = df_time_sold_for_view[df_time_sold_for_view["Dispo_Rep_clean"] == dispo_rep_choice_sm]
+        if "df_time_cut_for_view" in globals() and "Dispo_Rep_clean" in df_time_cut_for_view.columns:
+            df_time_cut_for_view = df_time_cut_for_view[df_time_cut_for_view["Dispo_Rep_clean"] == dispo_rep_choice_sm]
 
 if team_view == "Sales Manager":
     if market_choice != "All markets" and "Market_clean" in df_time_sold_for_view.columns:
