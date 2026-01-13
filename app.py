@@ -159,15 +159,33 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
 
 
     if "Market_clean" in df_sold.columns:
-        st.markdown("#### GP by Market")
-        gp_by_mkt = (
-            df_sold[df_sold["Market_clean"].astype(str).str.strip() != ""]
-            .groupby("Market_clean")["Gross_Profit"]
-            .sum()
-            .sort_values(ascending=False)
-        )
-        st.bar_chart(gp_by_mkt)
+    st.markdown("#### GP by Market (share of total)")
 
+    gp_by_mkt = (
+        df_sold[df_sold["Market_clean"].astype(str).str.strip() != ""]
+        .groupby("Market_clean")["Gross_Profit"]
+        .sum()
+        .sort_values(ascending=False)
+    )
+
+    # Bucket small slices into "Other" if there are many markets
+    top_n = 8
+    if len(gp_by_mkt) > top_n:
+        top = gp_by_mkt.head(top_n)
+        other = gp_by_mkt.iloc[top_n:].sum()
+        gp_by_mkt_plot = pd.concat([top, pd.Series({"Other": other})])
+    else:
+        gp_by_mkt_plot = gp_by_mkt
+
+    gp_by_mkt_plot = gp_by_mkt_plot[gp_by_mkt_plot > 0]
+
+    if gp_by_mkt_plot.empty:
+        st.info("Not enough positive GP values to display a pie chart for Markets.")
+    else:
+        fig, ax = plt.subplots()
+        ax.pie(gp_by_mkt_plot.values, labels=gp_by_mkt_plot.index, autopct="%1.1f%%", startangle=90)
+        ax.axis("equal")
+        st.pyplot(fig)
 
 def init_state():
     """
