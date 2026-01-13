@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
+import altair as alt
 from streamlit_folium import st_folium
 
 from config import DEFAULT_PAGE, MAP_DEFAULTS, C
@@ -127,17 +127,16 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
     deals_by_q = df_sold.groupby("Quarter").size().sort_index()
     st.bar_chart(deals_by_q)
 
-    if "Dispo_Rep_clean" in df_sold.columns:
-        st.markdown("#### GP by Dispo Rep (share of total, top 10)")
+if "Dispo_Rep_clean" in df_sold.columns:
+    st.markdown("#### GP by Dispo Rep (share of total, top 10)")
 
-        gp_by_rep = (
-            df_sold[df_sold["Dispo_Rep_clean"].astype(str).str.strip() != ""]
-            .groupby("Dispo_Rep_clean")["Gross_Profit"]
-            .sum()
-            .sort_values(ascending=False)
+    gp_by_rep = (
+        df_sold[df_sold["Dispo_Rep_clean"].astype(str).str.strip() != ""]
+        .groupby("Dispo_Rep_clean")["Gross_Profit"]
+        .sum()
+        .sort_values(ascending=False)
     )
 
-    # Keep pie readable: show top 10 + bucket the rest as "Other"
     top_n = 10
     if len(gp_by_rep) > top_n:
         top = gp_by_rep.head(top_n)
@@ -146,29 +145,36 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
     else:
         gp_by_rep_plot = gp_by_rep
 
-    # Remove non-positive values (pies get weird with negatives/zeros)
     gp_by_rep_plot = gp_by_rep_plot[gp_by_rep_plot > 0]
 
     if gp_by_rep_plot.empty:
-        st.info("Not enough positive GP values to display a pie chart for Dispo Reps.")
+        st.info("Not enough positive GP to show Dispo Rep pie.")
     else:
-        fig, ax = plt.subplots()
-        ax.pie(gp_by_rep_plot.values, labels=gp_by_rep_plot.index, autopct="%1.1f%%", startangle=90)
-        ax.axis("equal")
-        st.pyplot(fig)
+        pie_df = gp_by_rep_plot.reset_index()
+        pie_df.columns = ["Dispo Rep", "Gross Profit"]
 
+        chart = (
+            alt.Chart(pie_df)
+            .mark_arc(innerRadius=50)
+            .encode(
+                theta=alt.Theta(field="Gross Profit", type="quantitative"),
+                color=alt.Color(field="Dispo Rep", type="nominal"),
+                tooltip=["Dispo Rep", alt.Tooltip("Gross Profit", format=",.0f")],
+            )
+        )
 
-    if "Market_clean" in df_sold.columns:
-        st.markdown("#### GP by Market (share of total)")
+        st.altair_chart(chart, use_container_width=True)
 
-        gp_by_mkt = (
-            df_sold[df_sold["Market_clean"].astype(str).str.strip() != ""]
-            .groupby("Market_clean")["Gross_Profit"]
-            .sum()
-            .sort_values(ascending=False)
+if "Market_clean" in df_sold.columns:
+    st.markdown("#### GP by Market (share of total)")
+
+    gp_by_mkt = (
+        df_sold[df_sold["Market_clean"].astype(str).str.strip() != ""]
+        .groupby("Market_clean")["Gross_Profit"]
+        .sum()
+        .sort_values(ascending=False)
     )
 
-    # Bucket small slices into "Other" if there are many markets
     top_n = 8
     if len(gp_by_mkt) > top_n:
         top = gp_by_mkt.head(top_n)
@@ -180,13 +186,23 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
     gp_by_mkt_plot = gp_by_mkt_plot[gp_by_mkt_plot > 0]
 
     if gp_by_mkt_plot.empty:
-        st.info("Not enough positive GP values to display a pie chart for Markets.")
+        st.info("Not enough positive GP to show Market pie.")
     else:
-        fig, ax = plt.subplots()
-        ax.pie(gp_by_mkt_plot.values, labels=gp_by_mkt_plot.index, autopct="%1.1f%%", startangle=90)
-        ax.axis("equal")
-        st.pyplot(fig)
+        pie_df = gp_by_mkt_plot.reset_index()
+        pie_df.columns = ["Market", "Gross Profit"]
 
+        chart = (
+            alt.Chart(pie_df)
+            .mark_arc(innerRadius=50)
+            .encode(
+                theta=alt.Theta(field="Gross Profit", type="quantitative"),
+                color=alt.Color(field="Market", type="nominal"),
+                tooltip=["Market", alt.Tooltip("Gross Profit", format=",.0f")],
+            )
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+        
 def init_state():
     """
     Central place for Streamlit session-state defaults.
