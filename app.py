@@ -395,8 +395,11 @@ sel = Selection(
 )
 
 # IMPORTANT: pass rep-filtered SOLD df into build_view_df so the table/map respect Dispo rep
-df_view = build_view_df(df_time_sold_for_view, fd.df_time_cut, sel)
-
+df_view = build_view_df(
+    df_time_sold_for_view,
+    df_time_cut_for_view if "df_time_cut_for_view" in globals() else fd.df_time_cut,
+    sel
+)
 # -----------------------------
 # Dispo: County quick lookup (rep-aware via override)
 # -----------------------------
@@ -416,7 +419,11 @@ top_buyers_dict = build_top_buyers_dict(df_time_sold_for_view if team_view == "D
 # County totals for sold/cut
 # (rep filter applies ONLY to sold rows in Dispo)
 # -----------------------------
-df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
+# Build conversion base using filtered sold/cut if available
+if "df_time_cut_for_view" in globals():
+    df_conv = pd.concat([df_time_sold_for_view, df_time_cut_for_view], ignore_index=True)
+else:
+    df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
 
 if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_conv.columns:
     df_conv = df_conv[(df_conv["Status_norm"] != "sold") | (df_conv["Dispo_Rep_clean"] == dispo_rep_choice)]
