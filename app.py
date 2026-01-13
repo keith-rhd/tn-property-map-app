@@ -159,13 +159,13 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
 
 
     if "Market_clean" in df_sold.columns:
-    st.markdown("#### GP by Market (share of total)")
+        st.markdown("#### GP by Market (share of total)")
 
-    gp_by_mkt = (
-        df_sold[df_sold["Market_clean"].astype(str).str.strip() != ""]
-        .groupby("Market_clean")["Gross_Profit"]
-        .sum()
-        .sort_values(ascending=False)
+        gp_by_mkt = (
+            df_sold[df_sold["Market_clean"].astype(str).str.strip() != ""]
+            .groupby("Market_clean")["Gross_Profit"]
+            .sum()
+            .sort_values(ascending=False)
     )
 
     # Bucket small slices into "Other" if there are many markets
