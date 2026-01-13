@@ -128,13 +128,13 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
     st.bar_chart(deals_by_q)
 
     if "Dispo_Rep_clean" in df_sold.columns:
-    st.markdown("#### GP by Dispo Rep (share of total, top 10)")
+        st.markdown("#### GP by Dispo Rep (share of total, top 10)")
 
-    gp_by_rep = (
-        df_sold[df_sold["Dispo_Rep_clean"].astype(str).str.strip() != ""]
-        .groupby("Dispo_Rep_clean")["Gross_Profit"]
-        .sum()
-        .sort_values(ascending=False)
+        gp_by_rep = (
+            df_sold[df_sold["Dispo_Rep_clean"].astype(str).str.strip() != ""]
+            .groupby("Dispo_Rep_clean")["Gross_Profit"]
+            .sum()
+            .sort_values(ascending=False)
     )
 
     # Keep pie readable: show top 10 + bucket the rest as "Other"
