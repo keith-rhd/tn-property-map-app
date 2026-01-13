@@ -127,82 +127,85 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
     deals_by_q = df_sold.groupby("Quarter").size().sort_index()
     st.bar_chart(deals_by_q)
 
-    if "Dispo_Rep_clean" in df_sold.columns:
-        st.markdown("#### GP by Dispo Rep (share of total, top 10)")
+    pie_left, pie_right = st.columns(2)
     
-        gp_by_rep = (
-            df_sold[df_sold["Dispo_Rep_clean"].astype(str).str.strip() != ""]
-            .groupby("Dispo_Rep_clean")["Gross_Profit"]
-            .sum()
-            .sort_values(ascending=False)
-        )
-    
-        top_n = 10
-        if len(gp_by_rep) > top_n:
-            top = gp_by_rep.head(top_n)
-            other = gp_by_rep.iloc[top_n:].sum()
-            gp_by_rep_plot = pd.concat([top, pd.Series({"Other": other})])
-        else:
-            gp_by_rep_plot = gp_by_rep
-    
-        gp_by_rep_plot = gp_by_rep_plot[gp_by_rep_plot > 0]
-    
-        if gp_by_rep_plot.empty:
-            st.info("Not enough positive GP to show Dispo Rep pie.")
-        else:
-            pie_df = gp_by_rep_plot.reset_index()
-            pie_df.columns = ["Dispo Rep", "Gross Profit"]
-    
-            chart = (
-                alt.Chart(pie_df)
-                .mark_arc(innerRadius=50)
-                .encode(
-                    theta=alt.Theta(field="Gross Profit", type="quantitative"),
-                    color=alt.Color(field="Dispo Rep", type="nominal"),
-                    tooltip=["Dispo Rep", alt.Tooltip("Gross Profit", format=",.0f")],
-                )
-            )
-    
-            st.altair_chart(chart, use_container_width=True)
-    
-    if "Market_clean" in df_sold.columns:
-        st.markdown("#### GP by Market (share of total)")
-    
-        gp_by_mkt = (
-            df_sold[df_sold["Market_clean"].astype(str).str.strip() != ""]
-            .groupby("Market_clean")["Gross_Profit"]
-            .sum()
-            .sort_values(ascending=False)
-        )
-    
-        top_n = 8
-        if len(gp_by_mkt) > top_n:
-            top = gp_by_mkt.head(top_n)
-            other = gp_by_mkt.iloc[top_n:].sum()
-            gp_by_mkt_plot = pd.concat([top, pd.Series({"Other": other})])
-        else:
-            gp_by_mkt_plot = gp_by_mkt
-    
-        gp_by_mkt_plot = gp_by_mkt_plot[gp_by_mkt_plot > 0]
-    
-        if gp_by_mkt_plot.empty:
-            st.info("Not enough positive GP to show Market pie.")
-        else:
-            pie_df = gp_by_mkt_plot.reset_index()
-            pie_df.columns = ["Market", "Gross Profit"]
-    
-            chart = (
-                alt.Chart(pie_df)
-                .mark_arc(innerRadius=50)
-                .encode(
-                    theta=alt.Theta(field="Gross Profit", type="quantitative"),
-                    color=alt.Color(field="Market", type="nominal"),
-                    tooltip=["Market", alt.Tooltip("Gross Profit", format=",.0f")],
-                )
-            )
-    
-            st.altair_chart(chart, use_container_width=True)
+    with pie_left:
+        if "Dispo_Rep_clean" in df_sold.columns:
+            st.markdown("#### GP by Dispo Rep (share of total, top 10)")
         
+            gp_by_rep = (
+                df_sold[df_sold["Dispo_Rep_clean"].astype(str).str.strip() != ""]
+                .groupby("Dispo_Rep_clean")["Gross_Profit"]
+                .sum()
+                .sort_values(ascending=False)
+            )
+        
+            top_n = 10
+            if len(gp_by_rep) > top_n:
+                top = gp_by_rep.head(top_n)
+                other = gp_by_rep.iloc[top_n:].sum()
+                gp_by_rep_plot = pd.concat([top, pd.Series({"Other": other})])
+            else:
+                gp_by_rep_plot = gp_by_rep
+        
+            gp_by_rep_plot = gp_by_rep_plot[gp_by_rep_plot > 0]
+        
+            if gp_by_rep_plot.empty:
+                st.info("Not enough positive GP to show Dispo Rep pie.")
+            else:
+                pie_df = gp_by_rep_plot.reset_index()
+                pie_df.columns = ["Dispo Rep", "Gross Profit"]
+        
+                chart = (
+                    alt.Chart(pie_df)
+                    .mark_arc(innerRadius=50)
+                    .encode(
+                        theta=alt.Theta(field="Gross Profit", type="quantitative"),
+                        color=alt.Color(field="Dispo Rep", type="nominal"),
+                        tooltip=["Dispo Rep", alt.Tooltip("Gross Profit", format=",.0f")],
+                    )
+                )
+        
+                st.altair_chart(chart, use_container_width=True)
+    with pie_right:
+        if "Market_clean" in df_sold.columns:
+            st.markdown("#### GP by Market (share of total)")
+        
+            gp_by_mkt = (
+                df_sold[df_sold["Market_clean"].astype(str).str.strip() != ""]
+                .groupby("Market_clean")["Gross_Profit"]
+                .sum()
+                .sort_values(ascending=False)
+            )
+        
+            top_n = 8
+            if len(gp_by_mkt) > top_n:
+                top = gp_by_mkt.head(top_n)
+                other = gp_by_mkt.iloc[top_n:].sum()
+                gp_by_mkt_plot = pd.concat([top, pd.Series({"Other": other})])
+            else:
+                gp_by_mkt_plot = gp_by_mkt
+        
+            gp_by_mkt_plot = gp_by_mkt_plot[gp_by_mkt_plot > 0]
+        
+            if gp_by_mkt_plot.empty:
+                st.info("Not enough positive GP to show Market pie.")
+            else:
+                pie_df = gp_by_mkt_plot.reset_index()
+                pie_df.columns = ["Market", "Gross Profit"]
+        
+                chart = (
+                    alt.Chart(pie_df)
+                    .mark_arc(innerRadius=50)
+                    .encode(
+                        theta=alt.Theta(field="Gross Profit", type="quantitative"),
+                        color=alt.Color(field="Market", type="nominal"),
+                        tooltip=["Market", alt.Tooltip("Gross Profit", format=",.0f")],
+                    )
+                )
+        
+                st.altair_chart(chart, use_container_width=True)
+            
 def init_state():
     """
     Central place for Streamlit session-state defaults.
