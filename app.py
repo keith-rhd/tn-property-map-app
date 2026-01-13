@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import streamlit as st
+import matplotlib.pyplot as plt
 from streamlit_folium import st_folium
 
 from config import DEFAULT_PAGE, MAP_DEFAULTS, C
