@@ -244,6 +244,9 @@ fd = prepare_filtered_data(df, year_choice)
 rep_active = False
 dispo_rep_choice = "All reps"
 
+market_choice = "All markets"
+acq_rep_choice = "All acquisition reps"
+
 if team_view == "Dispo":
 
     # --- Buyer filter ---
