@@ -128,15 +128,35 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
     st.bar_chart(deals_by_q)
 
     if "Dispo_Rep_clean" in df_sold.columns:
-        st.markdown("#### GP by Dispo Rep (top 15)")
-        gp_by_rep = (
-            df_sold[df_sold["Dispo_Rep_clean"].astype(str).str.strip() != ""]
-            .groupby("Dispo_Rep_clean")["Gross_Profit"]
-            .sum()
-            .sort_values(ascending=False)
-            .head(15)
-        )
-        st.bar_chart(gp_by_rep)
+    st.markdown("#### GP by Dispo Rep (share of total, top 10)")
+
+    gp_by_rep = (
+        df_sold[df_sold["Dispo_Rep_clean"].astype(str).str.strip() != ""]
+        .groupby("Dispo_Rep_clean")["Gross_Profit"]
+        .sum()
+        .sort_values(ascending=False)
+    )
+
+    # Keep pie readable: show top 10 + bucket the rest as "Other"
+    top_n = 10
+    if len(gp_by_rep) > top_n:
+        top = gp_by_rep.head(top_n)
+        other = gp_by_rep.iloc[top_n:].sum()
+        gp_by_rep_plot = pd.concat([top, pd.Series({"Other": other})])
+    else:
+        gp_by_rep_plot = gp_by_rep
+
+    # Remove non-positive values (pies get weird with negatives/zeros)
+    gp_by_rep_plot = gp_by_rep_plot[gp_by_rep_plot > 0]
+
+    if gp_by_rep_plot.empty:
+        st.info("Not enough positive GP values to display a pie chart for Dispo Reps.")
+    else:
+        fig, ax = plt.subplots()
+        ax.pie(gp_by_rep_plot.values, labels=gp_by_rep_plot.index, autopct="%1.1f%%", startangle=90)
+        ax.axis("equal")
+        st.pyplot(fig)
+
 
     if "Market_clean" in df_sold.columns:
         st.markdown("#### GP by Market")
