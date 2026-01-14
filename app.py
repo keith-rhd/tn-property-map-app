@@ -645,6 +645,8 @@ if team_view == "Sales Manager":
             mao_tier_by_county=mao_tier_by_county,
             mao_range_by_county=mao_range_by_county,
             buyer_count_by_county=buyer_count_by_county,
+            gp_total_by_county=gp_total_by_county,
+            gp_avg_by_county=gp_avg_by_county,
         )
 
         color_scheme = "mao" if team_view == "Acquisitions" else "activity"
