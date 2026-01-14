@@ -601,30 +601,6 @@ if team_view == "Sales Manager":
         # Enrich geojson for map
         # -----------------------------
         county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
-        # -----------------------------
-        # Sales Manager: GP metrics (sold only) by county
-        # -----------------------------
-        gp_total_by_county = {}
-        gp_avg_by_county = {}
-        
-        if team_view == "Sales Manager":
-            # use sold deals only, and respect current filters
-            df_sold_gp = df_time_sold_for_view[df_time_sold_for_view["Status_norm"] == "sold"].copy()
-        
-            if "Gross_Profit" in df_sold_gp.columns:
-                gp_total_by_county = (
-                    df_sold_gp.groupby("County_clean_up")["Gross_Profit"]
-                    .sum(min_count=1)
-                    .fillna(0)
-                    .to_dict()
-                )
-                gp_avg_by_county = (
-                    df_sold_gp.groupby("County_clean_up")["Gross_Profit"]
-                    .mean()
-                    .fillna(0)
-                    .to_dict()
-                )
-
         county_properties_view = build_county_properties_view(df_view)
 
         tn_geo = load_tn_geojson()
@@ -645,8 +621,6 @@ if team_view == "Sales Manager":
             mao_tier_by_county=mao_tier_by_county,
             mao_range_by_county=mao_range_by_county,
             buyer_count_by_county=buyer_count_by_county,
-            gp_total_by_county=gp_total_by_county,
-            gp_avg_by_county=gp_avg_by_county,
         )
 
         color_scheme = "mao" if team_view == "Acquisitions" else "activity"
