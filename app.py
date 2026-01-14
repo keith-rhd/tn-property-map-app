@@ -117,7 +117,7 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
 
     st.divider()
 
-    time_bucket = st.selectbox("Time bucket", ["Quarter", "Month"], index=0, horizontal=True if hasattr(st, "radio") else False)
+    time_bucket = st.selectbox("Time bucket", ["Quarter", "Month"], index=0)
 
     df_sold = _add_quarter(df_sold)
 
