@@ -154,6 +154,14 @@ def build_map(
 
     tooltip = folium.GeoJsonTooltip(fields=tooltip_fields, aliases=tooltip_aliases, localize=True, sticky=False)
 
+    tooltip_fields = ["county", "sold", "cut", "close_rate"]  # whatever you currently have
+    tooltip_aliases = ["County", "Sold", "Cut loose", "Close rate"]
+    
+    if team_view == "Sales Manager":
+        tooltip_fields += ["gp_total_fmt", "gp_avg_fmt"]
+        tooltip_aliases += ["Total GP", "Avg GP / Deal"]
+
+
     folium.GeoJson(
         tn_geo,
         name="TN Counties",
