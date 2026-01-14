@@ -69,6 +69,24 @@ def _apply_common_props(
     props["TOTAL_COUNT"] = total
     props["CLOSE_RATE_STR"] = close_rate_str
 
+            # Sales Manager GP metrics
+        if team_view == "Sales Manager":
+            total_gp = 0
+            avg_gp = 0
+            if gp_total_by_county:
+                total_gp = gp_total_by_county.get(county_clean, 0) or 0
+            if gp_avg_by_county:
+                avg_gp = gp_avg_by_county.get(county_clean, 0) or 0
+
+            # store raw numbers
+            props["gp_total"] = float(total_gp)
+            props["gp_avg"] = float(avg_gp)
+
+            # store formatted strings for tooltips
+            props["gp_total_fmt"] = f"${total_gp:,.0f}"
+            props["gp_avg_fmt"] = f"${avg_gp:,.0f}"
+
+
     # Counts in *current* view (mode/year/buyer filters)
     props["PROP_COUNT"] = int(county_counts_view.get(name_up, 0))
 
