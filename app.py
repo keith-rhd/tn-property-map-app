@@ -117,15 +117,31 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame):
 
     st.divider()
 
+    time_bucket = st.selectbox("Time bucket", ["Quarter", "Month"], index=0, horizontal=True if hasattr(st, "radio") else False)
+
     df_sold = _add_quarter(df_sold)
 
-    st.markdown("#### GP by quarter")
-    gp_by_q = df_sold.groupby("Quarter")["Gross_Profit"].sum().sort_index()
-    st.line_chart(gp_by_q)
+    # Build a period label based on the selected time bucket
+    df_sold = df_sold.copy()
+    df_sold["Date_dt"] = pd.to_datetime(df_sold.get("Date_dt"), errors="coerce")
+    
+    if time_bucket == "Month":
+        df_sold["Period"] = df_sold["Date_dt"].dt.to_period("M").astype(str)
+        period_label = "month"
+    else:
+        df_sold["Period"] = df_sold["Date_dt"].dt.to_period("Q").astype(str)
+        period_label = "quarter"
+    
+    # GP over time
+    st.markdown(f"#### GP by {period_label}")
+    gp_by_period = df_sold.groupby("Period")["Gross_Profit"].sum().sort_index()
+    st.line_chart(gp_by_period)
+    
+    # Deal count over time
+    st.markdown(f"#### Sold deals by {period_label}")
+    deals_by_period = df_sold.groupby("Period").size().sort_index()
+    st.bar_chart(deals_by_period)
 
-    st.markdown("#### Sold deals by quarter")
-    deals_by_q = df_sold.groupby("Quarter").size().sort_index()
-    st.bar_chart(deals_by_q)
 
     pie_left, pie_right = st.columns(2)
     
