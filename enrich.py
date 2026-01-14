@@ -247,6 +247,8 @@ def enrich_geojson_properties(
     mao_tier_by_county: Dict[str, str],
     mao_range_by_county: Dict[str, str],
     buyer_count_by_county: Dict[str, int],
+    gp_total_by_county=None,
+    gp_avg_by_county=None,
 ) -> dict:
     """Backward-compatible wrapper.
     Routes to the correct enrichment based on team_view.
