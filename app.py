@@ -37,7 +37,7 @@ from app_sections import (
 from map_build import build_map
 
 # -----------------------------
-# Sales Manager auth
+# Admin auth
 # -----------------------------
 def _get_sales_manager_password() -> str | None:
     # Prefer Streamlit Secrets (Streamlit Cloud)
@@ -57,7 +57,7 @@ def _require_sales_manager_auth():
     expected = _get_sales_manager_password()
     if not expected:
         st.sidebar.error(
-            "Sales Manager password is not configured.\n\n"
+            "Admin password is not configured.\n\n"
             "Add `sales_manager_password` in Streamlit Secrets "
             "or set env var `SALES_MANAGER_PASSWORD`."
         )
@@ -66,7 +66,7 @@ def _require_sales_manager_auth():
     if st.session_state.get("sales_manager_authed") is True:
         return
 
-    st.sidebar.markdown("## Sales Manager access")
+    st.sidebar.markdown("## Admin access")
     entered = st.sidebar.text_input("Password", type="password")
 
     if entered and entered == expected:
@@ -74,12 +74,12 @@ def _require_sales_manager_auth():
         st.sidebar.success("Unlocked.")
         return
 
-    st.sidebar.info("Enter the Sales Manager password to continue.")
+    st.sidebar.info("Enter the Admin password to continue.")
     st.stop()
 
 
 # -----------------------------
-# Sales Manager dashboard
+# Admin dashboard
 # -----------------------------
 def _safe_sum(series) -> float:
     try:
@@ -288,13 +288,13 @@ all_county_options = tier_counties if tier_counties else deal_counties
 team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
 st.session_state["team_view"] = team_view
 
-if team_view == "Sales Manager":
+if team_view == "Admin":
     _require_sales_manager_auth()
 
 # -----------------------------
 # Controls row (top)
 # -----------------------------
-if team_view == "Sales Manager":
+if team_view == "Admin":
     col1, col2, col3, col4, col5 = st.columns([1.0, 1.4, 1.4, 1.5, 1.3], gap="small")
 else:
     col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
@@ -368,8 +368,8 @@ if team_view == "Dispo":
 
         rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
 
-elif team_view == "Sales Manager":
-    # Sales Manager: all filters on the top row
+elif team_view == "Admin":
+    # Admin: all filters on the top row
     with col3:
         markets = []
         if "Market_clean" in df.columns:
@@ -421,13 +421,13 @@ if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_time_sold_for
 
 df_time_cut_for_view = fd.df_time_cut
 
-if team_view == "Sales Manager":
+if team_view == "Admin":
     if dispo_rep_choice_sm != "All reps" and "Dispo_Rep_clean" in df_time_sold_for_view.columns:
         df_time_sold_for_view = df_time_sold_for_view[df_time_sold_for_view["Dispo_Rep_clean"] == dispo_rep_choice_sm]
         if "df_time_cut_for_view" in globals() and "Dispo_Rep_clean" in df_time_cut_for_view.columns:
             df_time_cut_for_view = df_time_cut_for_view[df_time_cut_for_view["Dispo_Rep_clean"] == dispo_rep_choice_sm]
 
-if team_view == "Sales Manager":
+if team_view == "Admin":
     if market_choice != "All markets" and "Market_clean" in df_time_sold_for_view.columns:
         df_time_sold_for_view = df_time_sold_for_view[df_time_sold_for_view["Market_clean"] == market_choice]
         df_time_cut_for_view = df_time_cut_for_view[df_time_cut_for_view["Market_clean"] == market_choice]
@@ -441,7 +441,7 @@ if team_view == "Sales Manager":
 #  - In Dispo: respects rep filter
 #  - In Acq: uses full sold data (rep filter off anyway)
 # -------------------------------------------------
-df_sold_buyers = df_time_sold_for_view.copy() if team_view in ["Dispo", "Sales Manager"] else fd.df_time_sold.copy()
+df_sold_buyers = df_time_sold_for_view.copy() if team_view in ["Dispo", "Admin"] else fd.df_time_sold.copy()
 if "Buyer_clean" in df_sold_buyers.columns:
     df_sold_buyers["Buyer_clean"] = df_sold_buyers["Buyer_clean"].astype(str).str.strip()
 else:
@@ -587,7 +587,7 @@ if buyer_active and mode in ["Sold", "Both"]:
         .to_dict()
     )
 
-if team_view == "Sales Manager":
+if team_view == "Admin":
     tab_dash, tab_map = st.tabs(["Dashboard", "Map"])
 
     with tab_dash:
