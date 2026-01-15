@@ -6,7 +6,7 @@ import streamlit as st
 def render_team_view_toggle(default: str = "Dispo") -> str:
     """Sidebar toggle between Dispo, Acquisitions, and Sales Manager views."""
     st.sidebar.markdown("## Team view")
-    options = ["Dispo", "Acquisitions"]
+    options = ["Dispo", "Acquisitions", "Sales Manager"]
     index = 0 if default not in options else options.index(default)
     team_view = st.sidebar.radio(
         "Choose a view",
