@@ -285,9 +285,10 @@ all_county_options = tier_counties if tier_counties else deal_counties
 # -----------------------------
 # Sidebar: Team view toggle
 # -----------------------------
-team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
-st.session_state["team_view"] = team_view
-
+team_view = st.session_state.get(
+    "team_view",
+    render_team_view_toggle(default="Dispo")
+)
 if team_view == "Sales Manager":
     _require_sales_manager_auth()
 
@@ -576,6 +577,13 @@ if team_view == "Dispo":
         total_buyers=stats["total_buyers"],
         close_rate_str=stats["close_rate_str"],
     )
+# ---------------------------------
+# Sales Manager access (discreet)
+# ---------------------------------
+st.sidebar.markdown("---")
+
+if st.sidebar.button("🔒 Sales Manager"):
+    st.session_state["team_view"] = "Sales Manager"
 
 # buyer_sold_counts (only when filtering by a buyer in Dispo)
 buyer_sold_counts = {}
