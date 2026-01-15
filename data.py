@@ -50,6 +50,18 @@ def _normalize_status(series: pd.Series) -> pd.Series:
     out.loc[compact.isin(["cutloose", "cutlose", "cut"])] = "cut loose"
     return out
 
+def _to_number(series: pd.Series) -> pd.Series:
+    """
+    Convert money-like strings to floats.
+    Examples: "$74,000" -> 74000.0 ; "" -> NaN
+    """
+    if series is None:
+        return pd.Series(dtype="float64")
+    s = series.astype(str).str.replace(r"[\$,]", "", regex=True).str.strip()
+    s = s.replace({"": None, "nan": None, "None": None})
+    return pd.to_numeric(s, errors="coerce")
+
+
 
 # -------------------------
 # Phase A2: Single source of truth normalization
@@ -70,7 +82,11 @@ def normalize_inputs(df: pd.DataFrame) -> pd.DataFrame:
 
     # Ensure expected columns exist (even if the sheet changes)
     # (Do not remove columns; only add missing ones.)
-    optional_cols = ["Salesforce_URL", "Buyer", "Date", "Status", "County", "Address", "City"]
+    optional_cols = [
+    "Salesforce_URL", "Buyer", "Date", "Status", "County", "Address", "City",
+    "Dispo Rep", "Contract Price", "Amended Price", "Wholesale Price", "Market", "Acquisition Rep",
+]
+
     for col in optional_cols:
         if col not in df.columns:
             df[col] = ""
@@ -111,6 +127,28 @@ def normalize_inputs(df: pd.DataFrame) -> pd.DataFrame:
         df["Dispo_Rep"] = df[dispo_col]
 
     df["Dispo_Rep_clean"] = df["Dispo_Rep"].astype(str).fillna("").str.strip()
+
+        # --- Market + Acquisition Rep (clean) ---
+    if "Market" not in df.columns:
+        df["Market"] = ""
+    df["Market_clean"] = df["Market"].astype(str).fillna("").str.strip()
+
+    if "Acquisition Rep" not in df.columns:
+        df["Acquisition Rep"] = ""
+    df["Acquisition_Rep_clean"] = df["Acquisition Rep"].astype(str).fillna("").str.strip()
+
+    # --- Financials (numeric) ---
+    df["Contract_Price_num"] = _to_number(df["Contract Price"]) if "Contract Price" in df.columns else pd.Series([None] * len(df))
+    df["Amended_Price_num"] = _to_number(df["Amended Price"]) if "Amended Price" in df.columns else pd.Series([None] * len(df))
+    df["Wholesale_Price_num"] = _to_number(df["Wholesale Price"]) if "Wholesale Price" in df.columns else pd.Series([None] * len(df))
+
+    # Effective contract price = amended if present else contract
+    df["Effective_Contract_Price"] = df["Contract_Price_num"]
+    has_amended = df["Amended_Price_num"].notna()
+    df.loc[has_amended, "Effective_Contract_Price"] = df.loc[has_amended, "Amended_Price_num"]
+
+    # Gross Profit = Wholesale - Effective Contract (only when both exist)
+    df["Gross_Profit"] = df["Wholesale_Price_num"] - df["Effective_Contract_Price"]
 
     return df
 

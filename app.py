@@ -1,5 +1,7 @@
+import os
 import pandas as pd
 import streamlit as st
+import altair as alt
 from streamlit_folium import st_folium
 
 from config import DEFAULT_PAGE, MAP_DEFAULTS, C
@@ -34,7 +36,192 @@ from app_sections import (
 
 from map_build import build_map
 
+# -----------------------------
+# Admin auth
+# -----------------------------
+def _get_sales_manager_password() -> str | None:
+    # Prefer Streamlit Secrets (Streamlit Cloud)
+    try:
+        pw = st.secrets.get("sales_manager_password", None)
+        if pw:
+            return str(pw)
+    except Exception:
+        pass
 
+    # Fallback to env var
+    pw = os.environ.get("SALES_MANAGER_PASSWORD")
+    return str(pw) if pw else None
+
+
+def _require_sales_manager_auth():
+    expected = _get_sales_manager_password()
+    if not expected:
+        st.sidebar.error(
+            "Admin password is not configured.\n\n"
+            "Add `sales_manager_password` in Streamlit Secrets "
+            "or set env var `SALES_MANAGER_PASSWORD`."
+        )
+        st.stop()
+
+    if st.session_state.get("sales_manager_authed") is True:
+        return
+
+    st.sidebar.markdown("## Admin access")
+    entered = st.sidebar.text_input("Password", type="password")
+
+    if entered and entered == expected:
+        st.session_state["sales_manager_authed"] = True
+        st.sidebar.success("Unlocked.")
+        return
+
+    st.sidebar.info("Enter the Admin password to continue.")
+    st.stop()
+
+
+# -----------------------------
+# Admin dashboard
+# -----------------------------
+def _safe_sum(series) -> float:
+    try:
+        return float(pd.to_numeric(series, errors="coerce").fillna(0).sum())
+    except Exception:
+        return 0.0
+
+
+def _add_quarter(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    if "Date_dt" in df.columns:
+        df["Quarter"] = df["Date_dt"].dt.to_period("Q").astype(str)
+    else:
+        df["Quarter"] = ""
+    return df
+
+
+def render_sales_manager_dashboard(df_sold: pd.DataFrame):
+    st.subheader("Financial dashboard")
+
+    if df_sold is None or df_sold.empty:
+        st.info("No SOLD deals found for the current filters.")
+        return
+
+    total_gp = _safe_sum(df_sold.get("Gross_Profit"))
+    total_wholesale = _safe_sum(df_sold.get("Wholesale_Price_num"))
+    sold_count = int(len(df_sold))
+    avg_gp = total_gp / sold_count if sold_count else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Gross Profit (GP)", f"${total_gp:,.0f}")
+    c2.metric("Total Wholesale Volume", f"${total_wholesale:,.0f}")
+    c3.metric("Sold Deals", f"{sold_count:,}")
+    c4.metric("Avg GP / Sold Deal", f"${avg_gp:,.0f}")
+
+    st.divider()
+
+    time_bucket = st.selectbox("Time bucket", ["Quarter", "Month"], index=0)
+
+    df_sold = _add_quarter(df_sold)
+
+    # Build a period label based on the selected time bucket
+    df_sold = df_sold.copy()
+    df_sold["Date_dt"] = pd.to_datetime(df_sold.get("Date_dt"), errors="coerce")
+    
+    if time_bucket == "Month":
+        df_sold["Period"] = df_sold["Date_dt"].dt.to_period("M").astype(str)
+        period_label = "month"
+    else:
+        df_sold["Period"] = df_sold["Date_dt"].dt.to_period("Q").astype(str)
+        period_label = "quarter"
+    
+    # GP over time
+    st.markdown(f"#### GP by {period_label}")
+    gp_by_period = df_sold.groupby("Period")["Gross_Profit"].sum().sort_index()
+    st.line_chart(gp_by_period)
+    
+    # Deal count over time
+    st.markdown(f"#### Sold deals by {period_label}")
+    deals_by_period = df_sold.groupby("Period").size().sort_index()
+    st.bar_chart(deals_by_period)
+
+
+    pie_left, pie_right = st.columns(2)
+    
+    with pie_left:
+        if "Dispo_Rep_clean" in df_sold.columns:
+            st.markdown("#### GP by Dispo Rep (share of total, top 10)")
+        
+            gp_by_rep = (
+                df_sold[df_sold["Dispo_Rep_clean"].astype(str).str.strip() != ""]
+                .groupby("Dispo_Rep_clean")["Gross_Profit"]
+                .sum()
+                .sort_values(ascending=False)
+            )
+        
+            top_n = 10
+            if len(gp_by_rep) > top_n:
+                top = gp_by_rep.head(top_n)
+                other = gp_by_rep.iloc[top_n:].sum()
+                gp_by_rep_plot = pd.concat([top, pd.Series({"Other": other})])
+            else:
+                gp_by_rep_plot = gp_by_rep
+        
+            gp_by_rep_plot = gp_by_rep_plot[gp_by_rep_plot > 0]
+        
+            if gp_by_rep_plot.empty:
+                st.info("Not enough positive GP to show Dispo Rep pie.")
+            else:
+                pie_df = gp_by_rep_plot.reset_index()
+                pie_df.columns = ["Dispo Rep", "Gross Profit"]
+        
+                chart = (
+                    alt.Chart(pie_df)
+                    .mark_arc(innerRadius=50)
+                    .encode(
+                        theta=alt.Theta(field="Gross Profit", type="quantitative"),
+                        color=alt.Color(field="Dispo Rep", type="nominal"),
+                        tooltip=["Dispo Rep", alt.Tooltip("Gross Profit", format=",.0f")],
+                    )
+                )
+        
+                st.altair_chart(chart, use_container_width=True)
+    with pie_right:
+        if "Market_clean" in df_sold.columns:
+            st.markdown("#### GP by Market (share of total)")
+        
+            gp_by_mkt = (
+                df_sold[df_sold["Market_clean"].astype(str).str.strip() != ""]
+                .groupby("Market_clean")["Gross_Profit"]
+                .sum()
+                .sort_values(ascending=False)
+            )
+        
+            top_n = 8
+            if len(gp_by_mkt) > top_n:
+                top = gp_by_mkt.head(top_n)
+                other = gp_by_mkt.iloc[top_n:].sum()
+                gp_by_mkt_plot = pd.concat([top, pd.Series({"Other": other})])
+            else:
+                gp_by_mkt_plot = gp_by_mkt
+        
+            gp_by_mkt_plot = gp_by_mkt_plot[gp_by_mkt_plot > 0]
+        
+            if gp_by_mkt_plot.empty:
+                st.info("Not enough positive GP to show Market pie.")
+            else:
+                pie_df = gp_by_mkt_plot.reset_index()
+                pie_df.columns = ["Market", "Gross Profit"]
+        
+                chart = (
+                    alt.Chart(pie_df)
+                    .mark_arc(innerRadius=50)
+                    .encode(
+                        theta=alt.Theta(field="Gross Profit", type="quantitative"),
+                        color=alt.Color(field="Market", type="nominal"),
+                        tooltip=["Market", alt.Tooltip("Gross Profit", format=",.0f")],
+                    )
+                )
+        
+                st.altair_chart(chart, use_container_width=True)
+            
 def init_state():
     """
     Central place for Streamlit session-state defaults.
@@ -101,10 +288,16 @@ all_county_options = tier_counties if tier_counties else deal_counties
 team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
 st.session_state["team_view"] = team_view
 
+if team_view == "Admin":
+    _require_sales_manager_auth()
+
 # -----------------------------
 # Controls row (top)
 # -----------------------------
-col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
+if team_view == "Admin":
+    col1, col2, col3, col4, col5 = st.columns([1.0, 1.4, 1.4, 1.5, 1.3], gap="small")
+else:
+    col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
 
 # --- View ---
 with col1:
@@ -127,6 +320,9 @@ fd = prepare_filtered_data(df, year_choice)
 # -------------------------------------------------
 rep_active = False
 dispo_rep_choice = "All reps"
+
+market_choice = "All markets"
+acq_rep_choice = "All acquisition reps"
 
 if team_view == "Dispo":
 
@@ -172,8 +368,32 @@ if team_view == "Dispo":
 
         rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
 
+elif team_view == "Admin":
+    # Admin: all filters on the top row
+    with col3:
+        markets = []
+        if "Market_clean" in df.columns:
+            markets = sorted([m for m in df["Market_clean"].dropna().astype(str).str.strip().unique().tolist() if m])
+        market_choice = st.selectbox("Market", ["All markets"] + markets, index=0)
+
+    with col4:
+        acq_reps = []
+        if "Acquisition_Rep_clean" in df.columns:
+            acq_reps = sorted([r for r in df["Acquisition_Rep_clean"].dropna().astype(str).str.strip().unique().tolist() if r])
+        acq_rep_choice = st.selectbox("Acquisition Rep", ["All acquisition reps"] + acq_reps, index=0)
+
+    with col5:
+        dispo_reps = []
+        if "Dispo_Rep_clean" in df.columns:
+            dispo_reps = sorted([r for r in df["Dispo_Rep_clean"].dropna().astype(str).str.strip().unique().tolist() if r])
+        dispo_rep_choice_sm = st.selectbox("Dispo rep", ["All reps"] + dispo_reps, index=0)
+
+    buyer_choice = "All buyers"
+    buyer_active = False
+    rep_active = False
+    dispo_rep_choice = "All reps"  # keep stable for other logic
+
 else:
-    # Acquisitions view keeps layout aligned
     with col3:
         buyer_choice = "All buyers"
         st.selectbox("Buyer", ["All buyers"], disabled=True)
@@ -185,7 +405,7 @@ else:
     buyer_active = False
     rep_active = False
     dispo_rep_choice = "All reps"
-
+    dispo_rep_choice_sm = "All reps"
 
 TOP_N = 10
 
@@ -199,12 +419,29 @@ if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_time_sold_for
         df_time_sold_for_view["Dispo_Rep_clean"] == dispo_rep_choice
     ]
 
+df_time_cut_for_view = fd.df_time_cut
+
+if team_view == "Admin":
+    if dispo_rep_choice_sm != "All reps" and "Dispo_Rep_clean" in df_time_sold_for_view.columns:
+        df_time_sold_for_view = df_time_sold_for_view[df_time_sold_for_view["Dispo_Rep_clean"] == dispo_rep_choice_sm]
+        if "df_time_cut_for_view" in globals() and "Dispo_Rep_clean" in df_time_cut_for_view.columns:
+            df_time_cut_for_view = df_time_cut_for_view[df_time_cut_for_view["Dispo_Rep_clean"] == dispo_rep_choice_sm]
+
+if team_view == "Admin":
+    if market_choice != "All markets" and "Market_clean" in df_time_sold_for_view.columns:
+        df_time_sold_for_view = df_time_sold_for_view[df_time_sold_for_view["Market_clean"] == market_choice]
+        df_time_cut_for_view = df_time_cut_for_view[df_time_cut_for_view["Market_clean"] == market_choice]
+
+    if acq_rep_choice != "All acquisition reps" and "Acquisition_Rep_clean" in df_time_sold_for_view.columns:
+        df_time_sold_for_view = df_time_sold_for_view[df_time_sold_for_view["Acquisition_Rep_clean"] == acq_rep_choice]
+        df_time_cut_for_view = df_time_cut_for_view[df_time_cut_for_view["Acquisition_Rep_clean"] == acq_rep_choice]
+
 # -------------------------------------------------
 # Buyer context (sold-only)
 #  - In Dispo: respects rep filter
 #  - In Acq: uses full sold data (rep filter off anyway)
 # -------------------------------------------------
-df_sold_buyers = df_time_sold_for_view.copy() if team_view == "Dispo" else fd.df_time_sold.copy()
+df_sold_buyers = df_time_sold_for_view.copy() if team_view in ["Dispo", "Admin"] else fd.df_time_sold.copy()
 if "Buyer_clean" in df_sold_buyers.columns:
     df_sold_buyers["Buyer_clean"] = df_sold_buyers["Buyer_clean"].astype(str).str.strip()
 else:
@@ -251,8 +488,11 @@ sel = Selection(
 )
 
 # IMPORTANT: pass rep-filtered SOLD df into build_view_df so the table/map respect Dispo rep
-df_view = build_view_df(df_time_sold_for_view, fd.df_time_cut, sel)
-
+df_view = build_view_df(
+    df_time_sold_for_view,
+    df_time_cut_for_view if "df_time_cut_for_view" in globals() else fd.df_time_cut,
+    sel
+)
 # -----------------------------
 # Dispo: County quick lookup (rep-aware via override)
 # -----------------------------
@@ -272,7 +512,11 @@ top_buyers_dict = build_top_buyers_dict(df_time_sold_for_view if team_view == "D
 # County totals for sold/cut
 # (rep filter applies ONLY to sold rows in Dispo)
 # -----------------------------
-df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
+# Build conversion base using filtered sold/cut if available
+if "df_time_cut_for_view" in globals():
+    df_conv = pd.concat([df_time_sold_for_view, df_time_cut_for_view], ignore_index=True)
+else:
+    df_conv = fd.df_time_filtered[fd.df_time_filtered["Status_norm"].isin(["sold", "cut loose"])]
 
 if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_conv.columns:
     df_conv = df_conv[(df_conv["Status_norm"] != "sold") | (df_conv["Dispo_Rep_clean"] == dispo_rep_choice)]
@@ -343,68 +587,145 @@ if buyer_active and mode in ["Sold", "Both"]:
         .to_dict()
     )
 
-# -----------------------------
-# Enrich geojson for map
-# -----------------------------
-county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
-county_properties_view = build_county_properties_view(df_view)
+if team_view == "Admin":
+    tab_dash, tab_map = st.tabs(["Dashboard", "Map"])
 
-tn_geo = load_tn_geojson()
+    with tab_dash:
+        # Dashboard should use SOLD deals for financials
+        # If your sold df variable has a different name earlier in your app,
+        # we can swap df_time_sold_for_view to that name.
+        render_sales_manager_dashboard(df_time_sold_for_view[df_time_sold_for_view["Status_norm"] == "sold"])
 
-tn_geo = enrich_geojson_properties(
-    tn_geo,
-    team_view=team_view,
-    mode=mode,
-    buyer_active=buyer_active,
-    buyer_choice=buyer_choice,
-    top_n_buyers=int(TOP_N),
-    county_counts_view=county_counts_view,
-    sold_counts=sold_counts,
-    cut_counts=cut_counts,
-    buyer_sold_counts=buyer_sold_counts,
-    top_buyers_dict=top_buyers_dict,
-    county_properties_view=county_properties_view,
-    mao_tier_by_county=mao_tier_by_county,
-    mao_range_by_county=mao_range_by_county,
-    buyer_count_by_county=buyer_count_by_county,
-)
+    with tab_map:
+        # -----------------------------
+        # Enrich geojson for map
+        # -----------------------------
+        county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
+        county_properties_view = build_county_properties_view(df_view)
 
-color_scheme = "mao" if team_view == "Acquisitions" else "activity"
+        tn_geo = load_tn_geojson()
 
-m = build_map(
-    tn_geo,
-    team_view=team_view,
-    mode=mode,
-    buyer_active=buyer_active,
-    buyer_choice=buyer_choice,
-    center_lat=MAP_DEFAULTS["center_lat"],
-    center_lon=MAP_DEFAULTS["center_lon"],
-    zoom_start=MAP_DEFAULTS["zoom_start"],
-    tiles=MAP_DEFAULTS["tiles"],
-    color_scheme=color_scheme,
-)
+        tn_geo = enrich_geojson_properties(
+            tn_geo,
+            team_view=team_view,
+            mode=mode,
+            buyer_active=buyer_active,
+            buyer_choice=buyer_choice,
+            top_n_buyers=int(TOP_N),
+            county_counts_view=county_counts_view,
+            sold_counts=sold_counts,
+            cut_counts=cut_counts,
+            buyer_sold_counts=buyer_sold_counts,
+            top_buyers_dict=top_buyers_dict,
+            county_properties_view=county_properties_view,
+            mao_tier_by_county=mao_tier_by_county,
+            mao_range_by_county=mao_range_by_county,
+            buyer_count_by_county=buyer_count_by_county,
+        )
 
-# -----------------------------
-# Render map and capture clicks
-# -----------------------------
-map_state = st_folium(
-    m,
-    height=650,
-    use_container_width=True,
-    returned_objects=["last_active_drawing", "last_object_clicked"],
-)
+        color_scheme = "mao" if team_view == "Acquisitions" else "activity"
 
-handle_map_click(map_state, team_view)
+        m = build_map(
+            tn_geo,
+            team_view=team_view,
+            mode=mode,
+            buyer_active=buyer_active,
+            buyer_choice=buyer_choice,
+            center_lat=MAP_DEFAULTS["center_lat"],
+            center_lon=MAP_DEFAULTS["center_lon"],
+            zoom_start=MAP_DEFAULTS["zoom_start"],
+            tiles=MAP_DEFAULTS["tiles"],
+            color_scheme=color_scheme,
+        )
 
-# -----------------------------
-# BELOW MAP: County details panel
-# -----------------------------
-render_below_map_panel(
-    team_view=team_view,
-    df_view=df_view,
-    sold_counts=sold_counts,
-    cut_counts=cut_counts,
-    buyer_count_by_county=buyer_count_by_county,
-    mao_tier_by_county=mao_tier_by_county,
-    mao_range_by_county=mao_range_by_county,
-)
+        # -----------------------------
+        # Render map and capture clicks
+        # -----------------------------
+        map_state = st_folium(
+            m,
+            height=650,
+            use_container_width=True,
+            returned_objects=["last_active_drawing", "last_object_clicked"],
+        )
+
+        handle_map_click(map_state, team_view)
+
+        # -----------------------------
+        # BELOW MAP: County details panel
+        # -----------------------------
+        render_below_map_panel(
+            team_view=team_view,
+            df_view=df_view,
+            sold_counts=sold_counts,
+            cut_counts=cut_counts,
+            buyer_count_by_county=buyer_count_by_county,
+            mao_tier_by_county=mao_tier_by_county,
+            mao_range_by_county=mao_range_by_county,
+        )
+
+else:
+    # -----------------------------
+    # Enrich geojson for map
+    # -----------------------------
+    county_counts_view = df_view.groupby("County_clean_up").size().to_dict()
+    county_properties_view = build_county_properties_view(df_view)
+
+    tn_geo = load_tn_geojson()
+
+    tn_geo = enrich_geojson_properties(
+        tn_geo,
+        team_view=team_view,
+        mode=mode,
+        buyer_active=buyer_active,
+        buyer_choice=buyer_choice,
+        top_n_buyers=int(TOP_N),
+        county_counts_view=county_counts_view,
+        sold_counts=sold_counts,
+        cut_counts=cut_counts,
+        buyer_sold_counts=buyer_sold_counts,
+        top_buyers_dict=top_buyers_dict,
+        county_properties_view=county_properties_view,
+        mao_tier_by_county=mao_tier_by_county,
+        mao_range_by_county=mao_range_by_county,
+        buyer_count_by_county=buyer_count_by_county,
+    )
+
+    color_scheme = "mao" if team_view == "Acquisitions" else "activity"
+
+    m = build_map(
+        tn_geo,
+        team_view=team_view,
+        mode=mode,
+        buyer_active=buyer_active,
+        buyer_choice=buyer_choice,
+        center_lat=MAP_DEFAULTS["center_lat"],
+        center_lon=MAP_DEFAULTS["center_lon"],
+        zoom_start=MAP_DEFAULTS["zoom_start"],
+        tiles=MAP_DEFAULTS["tiles"],
+        color_scheme=color_scheme,
+    )
+
+    # -----------------------------
+    # Render map and capture clicks
+    # -----------------------------
+    map_state = st_folium(
+        m,
+        height=650,
+        use_container_width=True,
+        returned_objects=["last_active_drawing", "last_object_clicked"],
+    )
+
+    handle_map_click(map_state, team_view)
+
+    # -----------------------------
+    # BELOW MAP: County details panel
+    # -----------------------------
+    render_below_map_panel(
+        team_view=team_view,
+        df_view=df_view,
+        sold_counts=sold_counts,
+        cut_counts=cut_counts,
+        buyer_count_by_county=buyer_count_by_county,
+        mao_tier_by_county=mao_tier_by_county,
+        mao_range_by_county=mao_range_by_county,
+    )
