@@ -34,8 +34,14 @@ def render_map_and_details(
     buyer_sold_counts: dict[str, int],
     mao_tier_by_county: dict[str, str],
     mao_range_by_county: dict[str, str],
+    # NEW: Admin-only GP dicts (safe to pass for all views; only Admin uses them)
+    gp_total_by_county: dict[str, float] | None = None,
+    gp_avg_by_county: dict[str, float] | None = None,
 ) -> None:
     """Build + render the Folium map and the below-map panel."""
+
+    gp_total_by_county = gp_total_by_county or {}
+    gp_avg_by_county = gp_avg_by_county or {}
 
     county_counts_view = df_view.groupby("County_clean_up").size().to_dict() if not df_view.empty else {}
     county_properties_view = build_county_properties_view(df_view)
@@ -57,6 +63,9 @@ def render_map_and_details(
         mao_tier_by_county=mao_tier_by_county,
         mao_range_by_county=mao_range_by_county,
         buyer_count_by_county=buyer_count_by_county,
+        # NEW:
+        gp_total_by_county=gp_total_by_county,
+        gp_avg_by_county=gp_avg_by_county,
     )
 
     color_scheme = "mao" if team_view == "Acquisitions" else "activity"
