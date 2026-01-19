@@ -23,6 +23,7 @@ from controller_services import (
     apply_admin_filters,
     compute_sold_cut_counts,
     build_rank_df,
+    compute_gp_by_county,
 )
 from data import load_data, load_mao_tiers
 from filters import Selection, build_view_df, compute_overall_stats
@@ -84,6 +85,17 @@ def run_app() -> None:
             acq_rep_choice=controls.acq_rep_choice,
             dispo_rep_choice_admin=controls.dispo_rep_choice_admin,
         )
+
+    # NEW: Admin-only GP per county for map tooltips
+    gp_total_by_county: dict[str, float] = {}
+    gp_avg_by_county: dict[str, float] = {}
+    if team_view == "Admin":
+        gp_total_by_county, gp_avg_by_county = compute_gp_by_county(
+            df_time_sold_for_view[df_time_sold_for_view["Status_norm"] == "sold"]
+            if "Status_norm" in df_time_sold_for_view.columns
+            else df_time_sold_for_view
+        )
+
 
     # Buyer context (sold-only)
     df_sold_buyers, buyer_count_by_county, buyers_set_by_county = compute_buyer_context_from_df(
@@ -193,6 +205,8 @@ def run_app() -> None:
         buyer_sold_counts=buyer_sold_counts,
         mao_tier_by_county=mao_tier_by_county,
         mao_range_by_county=mao_range_by_county,
+        gp_total_by_county=gp_total_by_county,
+        gp_avg_by_county=gp_avg_by_county,
     )
 
     # Admin: Dashboard + Map tabs. Others: Map only.

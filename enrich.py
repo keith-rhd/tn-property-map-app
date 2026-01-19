@@ -86,9 +86,7 @@ def enrich_geojson_dispo(
     mao_tier_by_county: Dict[str, str],   # kept for compatibility (can be blank)
     mao_range_by_county: Dict[str, str],  # kept for compatibility (can be blank)
 ) -> dict:
-    """Dispo enrichment: focuses on activity + buyer filter counts.
-    (We still attach MAO props if present, but they’re not required for Dispo coloring.)
-    """
+    """Dispo enrichment: focuses on activity + buyer filter counts."""
     for feature in tn_geo.get("features", []):
         props = feature.get("properties", {})
         name = str(props.get("NAME", "")).strip()
@@ -102,19 +100,15 @@ def enrich_geojson_dispo(
             cut_counts=cut_counts,
         )
 
-        # buyer counts (sold only, all buyers)
         props["BUYER_COUNT"] = int(buyer_count_by_county.get(name_up, 0))
 
-        # buyer specific sold counts (only meaningful when a buyer filter is active)
         buyer_sold = int(buyer_sold_counts.get(name_up, 0)) if buyer_active else 0
         props["BUYER_SOLD_COUNT"] = buyer_sold
 
-        # MAO fields (allowed to be blank; harmless for Dispo)
         props["MAO_TIER"] = str(mao_tier_by_county.get(name_up, "")) or ""
         props["MAO_RANGE"] = str(mao_range_by_county.get(name_up, "")) or ""
-        props["MAO_MIN_PCT"] = ""  # Dispo doesn’t need MAO coloring
+        props["MAO_MIN_PCT"] = ""
 
-        # Popup HTML (short)
         sold = int(props.get("SOLD_COUNT", 0))
         cut = int(props.get("CUT_COUNT", 0))
         total = int(props.get("TOTAL_COUNT", 0))
@@ -145,6 +139,70 @@ def enrich_geojson_dispo(
     return tn_geo
 
 
+def enrich_geojson_admin(
+    tn_geo: dict,
+    *,
+    county_counts_view: Dict[str, int],
+    sold_counts: Dict[str, int],
+    cut_counts: Dict[str, int],
+    buyer_count_by_county: Dict[str, int],
+    mao_tier_by_county: Dict[str, str],
+    mao_range_by_county: Dict[str, str],
+    gp_total_by_county: Dict[str, float],
+    gp_avg_by_county: Dict[str, float],
+) -> dict:
+    """Admin enrichment: same base activity tooltip, plus GP per county."""
+    for feature in tn_geo.get("features", []):
+        props = feature.get("properties", {})
+        name = str(props.get("NAME", "")).strip()
+        name_up = name.upper()
+
+        _apply_common_props(
+            props,
+            name_up=name_up,
+            county_counts_view=county_counts_view,
+            sold_counts=sold_counts,
+            cut_counts=cut_counts,
+        )
+
+        props["BUYER_COUNT"] = int(buyer_count_by_county.get(name_up, 0))
+
+        props["MAO_TIER"] = str(mao_tier_by_county.get(name_up, "")) or ""
+        props["MAO_RANGE"] = str(mao_range_by_county.get(name_up, "")) or ""
+        props["MAO_MIN_PCT"] = ""
+
+        gp_total = float(gp_total_by_county.get(name_up, 0.0) or 0.0)
+        gp_avg = float(gp_avg_by_county.get(name_up, 0.0) or 0.0)
+
+        props["GP_TOTAL"] = gp_total
+        props["GP_AVG"] = gp_avg
+
+        sold = int(props.get("SOLD_COUNT", 0))
+        cut = int(props.get("CUT_COUNT", 0))
+        total = int(props.get("TOTAL_COUNT", 0))
+        close_rate_str = str(props.get("CLOSE_RATE_STR", "N/A"))
+
+        lines: List[str] = [
+            f"<div style='font-size:14px;'><b>{name.title()} County</b></div>",
+            "<div style='margin-top:4px;'>",
+            f"<span style='color:#238b45;'>●</span> <b>Sold:</b> {sold} &nbsp; ",
+            f"<span style='color:#cb181d;'>●</span> <b>Cut loose:</b> {cut}<br>",
+            f"<b>Total:</b> {total} &nbsp; <b>Close rate:</b> {close_rate_str}<br>",
+            "</div>",
+            "<div style='margin-top:6px;'>"
+            f"<b>Total GP:</b> ${gp_total:,.0f}<br>"
+            f"<b>Avg GP / Sold Deal:</b> ${gp_avg:,.0f}"
+            "</div>",
+            "<div style='margin-top:8px; font-size:12.5px; opacity:0.85;'>"
+            "Tip: click a county to see full details below the map."
+            "</div>",
+        ]
+
+        props["POPUP_HTML"] = "\n".join(lines)
+
+    return tn_geo
+
+
 def enrich_geojson_acq(
     tn_geo: dict,
     *,
@@ -169,15 +227,12 @@ def enrich_geojson_acq(
             cut_counts=cut_counts,
         )
 
-        # MAO tier + range
         props["MAO_TIER"] = str(mao_tier_by_county.get(name_up, "")) or ""
         props["MAO_RANGE"] = str(mao_range_by_county.get(name_up, "")) or ""
 
-        # for MAO map coloring: parse a "min" from MAO range
         mn_val = None
         rng = (props.get("MAO_RANGE") or "").strip()
         if rng:
-            # examples: "73%–77%", "73%-77%", "0.73–0.77", "0.73-0.77"
             m_num = re.search(r"(\d+(?:\.\d+)?)", rng)
             if m_num:
                 try:
@@ -187,10 +242,8 @@ def enrich_geojson_acq(
                     mn_val = None
         props["MAO_MIN_PCT"] = mn_val if mn_val is not None else ""
 
-        # Buyer counts (sold only)
         props["BUYER_COUNT"] = int(buyer_count_by_county.get(name_up, 0))
 
-        # Popup HTML (short)
         sold = int(props.get("SOLD_COUNT", 0))
         cut = int(props.get("CUT_COUNT", 0))
         total = int(props.get("TOTAL_COUNT", 0))
@@ -247,11 +300,16 @@ def enrich_geojson_properties(
     mao_tier_by_county: Dict[str, str],
     mao_range_by_county: Dict[str, str],
     buyer_count_by_county: Dict[str, int],
+    # NEW (optional): Admin GP dictionaries
+    gp_total_by_county: Dict[str, float] | None = None,
+    gp_avg_by_county: Dict[str, float] | None = None,
 ) -> dict:
     """Backward-compatible wrapper.
     Routes to the correct enrichment based on team_view.
     """
     team_view_norm = (team_view or "").strip().lower()
+    gp_total_by_county = gp_total_by_county or {}
+    gp_avg_by_county = gp_avg_by_county or {}
 
     if team_view_norm == "acquisitions":
         return enrich_geojson_acq(
@@ -262,6 +320,19 @@ def enrich_geojson_properties(
             mao_tier_by_county=mao_tier_by_county,
             mao_range_by_county=mao_range_by_county,
             buyer_count_by_county=buyer_count_by_county,
+        )
+
+    if team_view_norm == "admin":
+        return enrich_geojson_admin(
+            tn_geo,
+            county_counts_view=county_counts_view,
+            sold_counts=sold_counts,
+            cut_counts=cut_counts,
+            buyer_count_by_county=buyer_count_by_county,
+            mao_tier_by_county=mao_tier_by_county,
+            mao_range_by_county=mao_range_by_county,
+            gp_total_by_county=gp_total_by_county,
+            gp_avg_by_county=gp_avg_by_county,
         )
 
     # Default to Dispo behavior

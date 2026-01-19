@@ -122,3 +122,30 @@ def build_rank_df(
         )
 
     return pd.DataFrame(rows)
+    
+def compute_gp_by_county(df_sold: pd.DataFrame) -> tuple[dict[str, float], dict[str, float]]:
+    """Compute total GP and avg GP per county (SOLD only).
+
+    Returns:
+      - gp_total_by_county: dict[county_up -> total_gp]
+      - gp_avg_by_county: dict[county_up -> avg_gp]
+    """
+    if df_sold is None or df_sold.empty:
+        return {}, {}
+
+    if "County_clean_up" not in df_sold.columns:
+        return {}, {}
+
+    if "Gross_Profit" not in df_sold.columns:
+        return {}, {}
+
+    df = df_sold.copy()
+    df["Gross_Profit_num"] = pd.to_numeric(df["Gross_Profit"], errors="coerce")
+    df = df.dropna(subset=["County_clean_up"])
+
+    grp = df.groupby("County_clean_up")["Gross_Profit_num"]
+
+    gp_total = grp.sum(min_count=1).fillna(0)
+    gp_avg = grp.mean().fillna(0)
+
+    return gp_total.to_dict(), gp_avg.to_dict()
