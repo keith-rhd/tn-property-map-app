@@ -63,34 +63,19 @@ def _safe_sum(series) -> float:
         return 0.0
 
 
-def _safe_mean(series) -> float:
-    try:
-        s = pd.to_numeric(series, errors="coerce").dropna()
-        return float(s.mean()) if len(s) else 0.0
-    except Exception:
-        return 0.0
+def _detect_county_col(df: pd.DataFrame) -> str | None:
+    for c in ["County_clean_up", "County", "County_clean"]:
+        if c in df.columns:
+            return c
+    return None
 
 
 def _build_gp_by_county_table(df_sold: pd.DataFrame) -> pd.DataFrame:
-    """Return a county-level GP summary table.
-
-    Columns:
-      - County
-      - Sold Deals
-      - Total GP
-      - Avg GP
-      - Total Wholesale (if available)
-      - Avg Wholesale (if available)
-    """
+    """County-level GP summary table."""
     if df_sold is None or df_sold.empty:
         return pd.DataFrame(columns=["County", "Sold Deals", "Total GP", "Avg GP"])
 
-    county_col = None
-    for c in ["County_clean_up", "County", "County_clean"]:
-        if c in df_sold.columns:
-            county_col = c
-            break
-
+    county_col = _detect_county_col(df_sold)
     if not county_col:
         return pd.DataFrame(columns=["County", "Sold Deals", "Total GP", "Avg GP"])
 
@@ -126,22 +111,16 @@ def _build_gp_by_county_table(df_sold: pd.DataFrame) -> pd.DataFrame:
 
     # Wholesale optional
     if df["Wholesale_Price_num2"].notna().any():
-        wholesale_sum = grp["Wholesale_Price_num2"].sum(min_count=1).fillna(0).values
-        wholesale_avg = grp["Wholesale_Price_num2"].mean().fillna(0).values
-        out["Total Wholesale"] = wholesale_sum
-        out["Avg Wholesale"] = wholesale_avg
+        out["Total Wholesale"] = grp["Wholesale_Price_num2"].sum(min_count=1).fillna(0).values
+        out["Avg Wholesale"] = grp["Wholesale_Price_num2"].mean().fillna(0).values
 
-    # Clean + sort
     out["County"] = out["County"].astype(str).str.title()
 
-    out = out.sort_values(["Total GP", "Sold Deals"], ascending=[False, False]).reset_index(drop=True)
-
-    # Friendly rounding
     for col in ["Total GP", "Avg GP", "Total Wholesale", "Avg Wholesale"]:
         if col in out.columns:
             out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0)
 
-    return out
+    return out.reset_index(drop=True)
 
 
 def render_sales_manager_dashboard(df_sold: pd.DataFrame) -> None:
@@ -168,56 +147,7 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame) -> None:
 
     st.divider()
 
-    # -------------------------
-    # NEW: GP + Avg GP per county
-    # -------------------------
-    st.markdown("### GP by county")
-
-    county_table = _build_gp_by_county_table(df_sold)
-
-    if county_table.empty:
-        st.info("County summary not available (missing county column).")
-    else:
-        left, right = st.columns([1.2, 1.0])
-        with left:
-            top_n = st.slider("Show top N counties (by Total GP)", min_value=10, max_value=95, value=25, step=5)
-        with right:
-            include_all = st.checkbox("Show all counties", value=False)
-
-        show_df = county_table if include_all else county_table.head(int(top_n))
-
-        # Display as formatted table
-        fmt_cols = {c: "${:,.0f}" for c in show_df.columns if c in ["Total GP", "Avg GP", "Total Wholesale", "Avg Wholesale"]}
-        st.dataframe(show_df.style.format(fmt_cols), use_container_width=True, hide_index=True)
-
-        # Download
-        csv_bytes = county_table.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download county GP table (CSV)",
-            data=csv_bytes,
-            file_name="county_gp_summary.csv",
-            mime="text/csv",
-        )
-
-        # Optional chart (Top 15)
-        st.markdown("#### Total GP by county (top 15)")
-        chart_df = county_table.head(15).copy()
-        chart_df["County"] = chart_df["County"].astype(str)
-
-        bar = (
-            alt.Chart(chart_df)
-            .mark_bar()
-            .encode(
-                x=alt.X("Total GP:Q", title="Total GP"),
-                y=alt.Y("County:N", sort="-x"),
-                tooltip=["County", alt.Tooltip("Total GP:Q", format=",.0f"), "Sold Deals"],
-            )
-        )
-        st.altair_chart(bar, use_container_width=True)
-
-    st.divider()
-
-    # Existing time charts
+    # Time series
     time_bucket = st.selectbox("Time bucket", ["Quarter", "Month"], index=0)
 
     df_sold = df_sold.copy()
@@ -238,6 +168,7 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame) -> None:
     deals_by_period = df_sold.groupby("Period").size().sort_index()
     st.bar_chart(deals_by_period)
 
+    # Pies (existing)
     pie_left, pie_right = st.columns(2)
 
     with pie_left:
@@ -317,3 +248,54 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame) -> None:
                 )
 
                 st.altair_chart(chart, use_container_width=True)
+
+    # -------------------------
+    # Bottom: County GP (side-by-side)
+    # -------------------------
+    st.divider()
+    st.markdown("### County GP (Admin)")
+
+    county_table = _build_gp_by_county_table(df_sold)
+
+    if county_table.empty:
+        st.info("County summary not available (missing county column).")
+        return
+
+    controls_left, controls_right = st.columns([1.2, 1.0])
+    with controls_left:
+        top_n = st.slider("Show top N counties", min_value=10, max_value=95, value=25, step=5)
+    with controls_right:
+        min_deals_for_avg = st.slider("Min sold deals for Avg GP ranking", min_value=1, max_value=15, value=3, step=1)
+
+    # Prepare the two ranked views
+    by_total = county_table.sort_values(["Total GP", "Sold Deals"], ascending=[False, False]).head(int(top_n)).copy()
+
+    by_avg_base = county_table[county_table["Sold Deals"] >= int(min_deals_for_avg)].copy()
+    by_avg = by_avg_base.sort_values(["Avg GP", "Sold Deals"], ascending=[False, False]).head(int(top_n)).copy()
+
+    fmt_cols = {c: "${:,.0f}" for c in county_table.columns if c in ["Total GP", "Avg GP", "Total Wholesale", "Avg Wholesale"]}
+
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("#### Total GP by County")
+        show_cols = ["County", "Sold Deals", "Total GP", "Avg GP"]
+        if "Total Wholesale" in by_total.columns:
+            show_cols += ["Total Wholesale"]
+        st.dataframe(by_total[show_cols].style.format(fmt_cols), use_container_width=True, hide_index=True)
+
+    with right:
+        st.markdown("#### Avg GP by County")
+        show_cols = ["County", "Sold Deals", "Avg GP", "Total GP"]
+        if "Avg Wholesale" in by_avg.columns:
+            show_cols += ["Avg Wholesale"]
+        st.dataframe(by_avg[show_cols].style.format(fmt_cols), use_container_width=True, hide_index=True)
+
+    # Keep a single download for the full table
+    csv_bytes = county_table.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "Download full county GP table (CSV)",
+        data=csv_bytes,
+        file_name="county_gp_summary.csv",
+        mime="text/csv",
+    )
