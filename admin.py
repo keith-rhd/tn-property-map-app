@@ -168,7 +168,7 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame) -> None:
     deals_by_period = df_sold.groupby("Period").size().sort_index()
     st.bar_chart(deals_by_period)
 
-    # Pies (existing)
+    # Pies
     pie_left, pie_right = st.columns(2)
 
     with pie_left:
@@ -250,13 +250,12 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame) -> None:
                 st.altair_chart(chart, use_container_width=True)
 
     # -------------------------
-    # Bottom: County GP (side-by-side)
+    # Bottom: County GP (chart + table)
     # -------------------------
     st.divider()
     st.markdown("### County GP (Admin)")
 
     county_table = _build_gp_by_county_table(df_sold)
-
     if county_table.empty:
         st.info("County summary not available (missing county column).")
         return
@@ -267,31 +266,54 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame) -> None:
     with controls_right:
         min_deals_for_avg = st.slider("Min sold deals for Avg GP ranking", min_value=1, max_value=15, value=3, step=1)
 
-    # Prepare the two ranked views
-    by_total = county_table.sort_values(["Total GP", "Sold Deals"], ascending=[False, False]).head(int(top_n)).copy()
-
+    # The Avg GP table is the "driver"
     by_avg_base = county_table[county_table["Sold Deals"] >= int(min_deals_for_avg)].copy()
     by_avg = by_avg_base.sort_values(["Avg GP", "Sold Deals"], ascending=[False, False]).head(int(top_n)).copy()
 
+    # Use EXACT same counties for the chart (so it matches the table selection)
+    counties_in_table = by_avg["County"].tolist()
+    chart_df = county_table[county_table["County"].isin(counties_in_table)].copy()
+
+    # Force chart order to match the table order (not total GP order)
+    order_map = {c: i for i, c in enumerate(counties_in_table)}
+    chart_df["__order"] = chart_df["County"].map(order_map).fillna(9999).astype(int)
+    chart_df = chart_df.sort_values("__order").drop(columns="__order")
+
+    # Format table
     fmt_cols = {c: "${:,.0f}" for c in county_table.columns if c in ["Total GP", "Avg GP", "Total Wholesale", "Avg Wholesale"]}
 
     left, right = st.columns(2)
 
     with left:
-        st.markdown("#### Total GP by County")
-        show_cols = ["County", "Sold Deals", "Total GP", "Avg GP"]
-        if "Total Wholesale" in by_total.columns:
-            show_cols += ["Total Wholesale"]
-        st.dataframe(by_total[show_cols].style.format(fmt_cols), use_container_width=True, hide_index=True)
+        st.markdown("#### Total GP (same counties as Avg GP table)")
+
+        bar = (
+            alt.Chart(chart_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("Total GP:Q", title="Total GP"),
+                y=alt.Y("County:N", sort=None, title=""),
+                tooltip=[
+                    "County",
+                    alt.Tooltip("Total GP:Q", format=",.0f"),
+                    alt.Tooltip("Avg GP:Q", format=",.0f"),
+                    "Sold Deals",
+                ],
+            )
+        )
+        st.altair_chart(bar, use_container_width=True)
+
+        st.caption("Chart counties are controlled by the Avg GP table filters (Top N + Min deals).")
 
     with right:
         st.markdown("#### Avg GP by County")
+
         show_cols = ["County", "Sold Deals", "Avg GP", "Total GP"]
         if "Avg Wholesale" in by_avg.columns:
             show_cols += ["Avg Wholesale"]
+
         st.dataframe(by_avg[show_cols].style.format(fmt_cols), use_container_width=True, hide_index=True)
 
-    # Keep a single download for the full table
     csv_bytes = county_table.to_csv(index=False).encode("utf-8")
     st.download_button(
         "Download full county GP table (CSV)",
