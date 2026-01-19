@@ -270,14 +270,14 @@ def render_sales_manager_dashboard(df_sold: pd.DataFrame) -> None:
     by_avg_base = county_table[county_table["Sold Deals"] >= int(min_deals_for_avg)].copy()
     by_avg = by_avg_base.sort_values(["Avg GP", "Sold Deals"], ascending=[False, False]).head(int(top_n)).copy()
 
-    # Use EXACT same counties for the chart (so it matches the table selection)
+    # Use EXACT same counties as the Avg GP table,
+    # but sort the chart by Total GP (descending)
     counties_in_table = by_avg["County"].tolist()
-    chart_df = county_table[county_table["County"].isin(counties_in_table)].copy()
-
-    # Force chart order to match the table order (not total GP order)
-    order_map = {c: i for i, c in enumerate(counties_in_table)}
-    chart_df["__order"] = chart_df["County"].map(order_map).fillna(9999).astype(int)
-    chart_df = chart_df.sort_values("__order").drop(columns="__order")
+    chart_df = (
+        county_table[county_table["County"].isin(counties_in_table)]
+        .sort_values("Total GP", ascending=False)
+        .copy()
+    )
 
     # Format table
     fmt_cols = {c: "${:,.0f}" for c in county_table.columns if c in ["Total GP", "Avg GP", "Total Wholesale", "Avg Wholesale"]}
