@@ -204,19 +204,16 @@ def run_app() -> None:
     
         admin_rank_df = pd.DataFrame(admin_rank_rows)
         
-        # Create formatted display columns
         admin_rank_df["Total GP ($)"] = admin_rank_df["Total GP"].apply(fmt_dollars_short)
         admin_rank_df["Avg GP ($)"] = admin_rank_df["Avg GP"].apply(fmt_dollars_short)
         
         render_rankings(
-            admin_rank_df[
-                ["County", "Total GP ($)", "Avg GP ($)", "Sold Deals"]
-            ],
+            admin_rank_df[["County", "Total GP ($)", "Avg GP ($)", "Sold Deals", "Total GP", "Avg GP"]],
             default_rank_metric="Total GP ($)",
             rank_options=["Total GP ($)", "Avg GP ($)", "Sold Deals"],
+            sort_by_map={"Total GP ($)": "Total GP", "Avg GP ($)": "Avg GP"},
         )
-
-    
+        
     else:
         render_rankings(
             rank_df[["County", "Close rate", "Sold", "Total", "Cut loose"]],
