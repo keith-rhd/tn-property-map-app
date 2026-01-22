@@ -127,27 +127,67 @@ def render_acquisitions_guidance(
     return chosen_key
 
 
-def render_rankings(rank_df: pd.DataFrame, *, default_rank_metric: str, rank_options: list[str]):
-    st.sidebar.markdown("## County rankings")
+def render_rankings(
+    df_rank,
+    *,
+    default_rank_metric: str,
+    rank_options: list[str],
+    sort_by_map: dict[str, str] | None = None,
+):
+    """
+    Renders a rankings table in the sidebar.
 
-    available = [c for c in rank_options if c in rank_df.columns]
-    if not available:
-        st.sidebar.info("No ranking metrics available.")
-        return None, None
+    - df_rank: dataframe containing at least 'County' and metric columns
+    - default_rank_metric: the default selection in dropdown (must be in rank_options)
+    - rank_options: list of columns that user can rank by
+    - sort_by_map: optional dict mapping {display_column: numeric_sort_column}
+      Example:
+        {"Total GP ($)": "Total GP", "Avg GP ($)": "Avg GP"}
+    """
+    import pandas as pd
+    import streamlit as st
 
-    if default_rank_metric not in available:
-        default_rank_metric = available[0]
+    if df_rank is None or df_rank.empty:
+        st.sidebar.info("No ranking data available for current filters.")
+        return
 
-    rank_metric = st.sidebar.selectbox(
-        "Rank by",
-        available,
-        index=available.index(default_rank_metric),
-    )
-    top_n = st.sidebar.slider("Top N", 5, 50, 15, 5)
+    st.sidebar.markdown("### County rankings")
 
-    st.sidebar.dataframe(
-        rank_df.sort_values(rank_metric, ascending=False).head(top_n),
-        use_container_width=True,
-        hide_index=True,
-    )
-    return rank_metric, top_n
+    # Dropdown for metric choice
+    idx = rank_options.index(default_rank_metric) if default_rank_metric in rank_options else 0
+    metric = st.sidebar.selectbox("Rank by", rank_options, index=idx)
+
+    # Determine numeric sort column
+    sort_col = metric
+    if sort_by_map and metric in sort_by_map:
+        sort_col = sort_by_map[metric]
+
+    # If sort_col missing, fallback gracefully
+    if sort_col not in df_rank.columns:
+        st.sidebar.warning("Selected rank metric is not available.")
+        return
+
+    # Sort descending for numeric-like things; if strings, this is still stable
+    df_sorted = df_rank.copy()
+
+    # Try to coerce the sort column to numeric for correct sorting
+    df_sorted["_sort_num"] = pd.to_numeric(df_sorted[sort_col], errors="coerce")
+    if df_sorted["_sort_num"].notna().any():
+        df_sorted = df_sorted.sort_values("_sort_num", ascending=False)
+    else:
+        df_sorted = df_sorted.sort_values(sort_col, ascending=False)
+
+    df_sorted = df_sorted.drop(columns=["_sort_num"], errors="ignore")
+
+    # Show top N
+    top_n = st.sidebar.slider("Top N", min_value=5, max_value=50, value=15, step=5)
+    df_sorted = df_sorted.head(int(top_n))
+
+    # Hide helper numeric columns if we were sorting by them
+    hide_cols = set()
+    if sort_by_map:
+        hide_cols.update(sort_by_map.values())
+    
+    show_cols = [c for c in df_sorted.columns if c not in hide_cols]
+    st.sidebar.dataframe(df_sorted[show_cols], use_container_width=True, hide_index=True)
+

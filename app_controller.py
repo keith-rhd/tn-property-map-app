@@ -38,6 +38,18 @@ from ui_sidebar import (
     render_acquisitions_guidance,
 )
 
+def fmt_dollars_short(x: float) -> str:
+    """Format dollars like $39K / $3.18M / $950."""
+    try:
+        x = float(x)
+    except Exception:
+        return "$0"
+
+    if abs(x) >= 1_000_000:
+        return f"${x/1_000_000:.2f}M"
+    if abs(x) >= 1_000:
+        return f"${x/1_000:.0f}K"
+    return f"${x:,.0f}"
 
 def run_app() -> None:
     st.set_page_config(**DEFAULT_PAGE)
@@ -163,12 +175,66 @@ def run_app() -> None:
             default_rank_metric="Health score",
             rank_options=["Health score", "Buyer count"],
         )
-    else:
-        render_rankings(
-            rank_df[["County", "Close rate", "Sold", "Total", "Cut loose"]],
-            default_rank_metric="Close rate",
-            rank_options=["Close rate", "Sold", "Total"],
+    
+    elif team_view == "Admin":
+        df_admin_sold_only = (
+            df_time_sold_for_view[df_time_sold_for_view["Status_norm"] == "sold"]
+            if "Status_norm" in df_time_sold_for_view.columns
+            else df_time_sold_for_view
         )
+    
+        gp_total_by_county, gp_avg_by_county = compute_gp_by_county(df_admin_sold_only)
+    
+        sold_deals_by_county = (
+            df_admin_sold_only.groupby("County_clean_up").size().to_dict()
+            if "County_clean_up" in df_admin_sold_only.columns and not df_admin_sold_only.empty
+            else {}
+        )
+    
+        admin_rank_rows = []
+        for county_up, total_gp in gp_total_by_county.items():
+            admin_rank_rows.append(
+                {
+                    "County": str(county_up).title(),
+                    "Total GP": float(total_gp or 0.0),
+                    "Avg GP": float(gp_avg_by_county.get(county_up, 0.0)),
+                    "Sold Deals": int(sold_deals_by_county.get(county_up, 0)),
+                }
+            )
+    
+        admin_rank_df = pd.DataFrame(admin_rank_rows)
+        
+        admin_rank_df["Total GP ($)"] = admin_rank_df["Total GP"].apply(fmt_dollars_short)
+        admin_rank_df["Avg GP ($)"] = admin_rank_df["Avg GP"].apply(fmt_dollars_short)
+        
+        render_rankings(
+            admin_rank_df[["County", "Total GP ($)", "Avg GP ($)", "Sold Deals", "Total GP", "Avg GP"]],
+            default_rank_metric="Total GP ($)",
+            rank_options=["Total GP ($)", "Avg GP ($)", "Sold Deals"],
+            sort_by_map={"Total GP ($)": "Total GP", "Avg GP ($)": "Avg GP"},
+        )
+        
+    else:
+        # Acquisitions: rank counties by # of buyers (most buyers first)
+        acq_rows = []
+        for county_up, buyer_ct in (buyer_count_by_county or {}).items():
+            acq_rows.append(
+                {
+                    "County": str(county_up).title(),
+                    "Buyer count": int(buyer_ct or 0),
+                }
+            )
+    
+        acq_rank_df = pd.DataFrame(acq_rows)
+    
+        if acq_rank_df.empty:
+            st.sidebar.info("No buyer counts available for current filters.")
+        else:
+            render_rankings(
+                acq_rank_df[["County", "Buyer count"]],
+                default_rank_metric="Buyer count",
+                rank_options=["Buyer count"],
+            )
 
     # Overall stats (Dispo only)
     if team_view == "Dispo":
