@@ -165,7 +165,6 @@ def run_app() -> None:
         )
     
     elif team_view == "Admin":
-        # Admin: top grossing counties (based on filtered SOLD deals)
         df_admin_sold_only = (
             df_time_sold_for_view[df_time_sold_for_view["Status_norm"] == "sold"]
             if "Status_norm" in df_time_sold_for_view.columns
@@ -174,7 +173,6 @@ def run_app() -> None:
     
         gp_total_by_county, gp_avg_by_county = compute_gp_by_county(df_admin_sold_only)
     
-        # Sold deal counts by county (admin filtered)
         sold_deals_by_county = (
             df_admin_sold_only.groupby("County_clean_up").size().to_dict()
             if "County_clean_up" in df_admin_sold_only.columns and not df_admin_sold_only.empty
@@ -187,33 +185,25 @@ def run_app() -> None:
                 {
                     "County": str(county_up).title(),
                     "Total GP": float(total_gp or 0.0),
-                    "Avg GP": float(gp_avg_by_county.get(county_up, 0.0) or 0.0),
+                    "Avg GP": float(gp_avg_by_county.get(county_up, 0.0)),
                     "Sold Deals": int(sold_deals_by_county.get(county_up, 0)),
                 }
             )
-
-    admin_rank_df = pd.DataFrame(admin_rank_rows)
-    if admin_rank_df.empty:
-        # Fallback: keep something visible if no GP data
-        render_rankings(
-            rank_df[["County", "Sold", "Total", "Cut loose"]],
-            default_rank_metric="Sold",
-            rank_options=["Sold", "Total"],
-        )
-    else:
+    
+        admin_rank_df = pd.DataFrame(admin_rank_rows)
+    
         render_rankings(
             admin_rank_df[["County", "Total GP", "Avg GP", "Sold Deals"]],
             default_rank_metric="Total GP",
             rank_options=["Total GP", "Avg GP", "Sold Deals"],
         )
-
-else:
-    # Acquisitions: keep close rate / volume
-    render_rankings(
-        rank_df[["County", "Close rate", "Sold", "Total", "Cut loose"]],
-        default_rank_metric="Close rate",
-        rank_options=["Close rate", "Sold", "Total"],
-    )
+    
+    else:
+        render_rankings(
+            rank_df[["County", "Close rate", "Sold", "Total", "Cut loose"]],
+            default_rank_metric="Close rate",
+            rank_options=["Close rate", "Sold", "Total"],
+        )
 
 
     # Overall stats (Dispo only)
