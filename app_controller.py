@@ -215,12 +215,26 @@ def run_app() -> None:
         )
         
     else:
-        render_rankings(
-            rank_df[["County", "Close rate", "Sold", "Total", "Cut loose"]],
-            default_rank_metric="Close rate",
-            rank_options=["Close rate", "Sold", "Total"],
-        )
-
+        # Acquisitions: rank counties by # of buyers (most buyers first)
+        acq_rows = []
+        for county_up, buyer_ct in (buyer_count_by_county or {}).items():
+            acq_rows.append(
+                {
+                    "County": str(county_up).title(),
+                    "Buyer count": int(buyer_ct or 0),
+                }
+            )
+    
+        acq_rank_df = pd.DataFrame(acq_rows)
+    
+        if acq_rank_df.empty:
+            st.sidebar.info("No buyer counts available for current filters.")
+        else:
+            render_rankings(
+                acq_rank_df[["County", "Buyer count"]],
+                default_rank_metric="Buyer count",
+                rank_options=["Buyer count"],
+            )
 
     # Overall stats (Dispo only)
     if team_view == "Dispo":
