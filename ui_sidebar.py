@@ -183,4 +183,11 @@ def render_rankings(
     top_n = st.sidebar.slider("Top N", min_value=5, max_value=50, value=15, step=5)
     df_sorted = df_sorted.head(int(top_n))
 
-    st.sidebar.dataframe(df_sorted, use_container_width=True, hide_index=True)
+    # Hide helper numeric columns if we were sorting by them
+    hide_cols = set()
+    if sort_by_map:
+        hide_cols.update(sort_by_map.values())
+    
+    show_cols = [c for c in df_sorted.columns if c not in hide_cols]
+    st.sidebar.dataframe(df_sorted[show_cols], use_container_width=True, hide_index=True)
+
