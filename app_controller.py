@@ -38,6 +38,18 @@ from ui_sidebar import (
     render_acquisitions_guidance,
 )
 
+def fmt_dollars_short(x: float) -> str:
+    """Format dollars like $39K / $3.18M / $950."""
+    try:
+        x = float(x)
+    except Exception:
+        return "$0"
+
+    if abs(x) >= 1_000_000:
+        return f"${x/1_000_000:.2f}M"
+    if abs(x) >= 1_000:
+        return f"${x/1_000:.0f}K"
+    return f"${x:,.0f}"
 
 def run_app() -> None:
     st.set_page_config(**DEFAULT_PAGE)
@@ -191,12 +203,19 @@ def run_app() -> None:
             )
     
         admin_rank_df = pd.DataFrame(admin_rank_rows)
-    
+        
+        # Create formatted display columns
+        admin_rank_df["Total GP ($)"] = admin_rank_df["Total GP"].apply(fmt_dollars_short)
+        admin_rank_df["Avg GP ($)"] = admin_rank_df["Avg GP"].apply(fmt_dollars_short)
+        
         render_rankings(
-            admin_rank_df[["County", "Total GP", "Avg GP", "Sold Deals"]],
-            default_rank_metric="Total GP",
-            rank_options=["Total GP", "Avg GP", "Sold Deals"],
+            admin_rank_df[
+                ["County", "Total GP ($)", "Avg GP ($)", "Sold Deals"]
+            ],
+            default_rank_metric="Total GP ($)",
+            rank_options=["Total GP ($)", "Avg GP ($)", "Sold Deals"],
         )
+
     
     else:
         render_rankings(
