@@ -61,8 +61,12 @@ def require_sales_manager_auth(*, session_timeout_seconds: int = 2 * 60 * 60) ->
             if st.sidebar.button("Log out"):
                 st.session_state["sales_manager_authed"] = False
                 st.session_state["sales_manager_authed_at"] = 0
-                st.experimental_rerun()
-            return
+                # Rerun (Streamlit renamed this over time)
+                if hasattr(st, "rerun"):
+                    st.rerun()
+                else:
+                    st.experimental_rerun()
+
 
     # Not authed yet
     st.sidebar.markdown("## Admin access")
