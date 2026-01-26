@@ -17,19 +17,17 @@ def county_options(
     - mao_tier_by_county (dict)
     - mao_range_by_county (dict)
     """
-
     mao_tier_by_county: dict[str, str] = {}
     mao_range_by_county: dict[str, str] = {}
 
     tier_counties: list[str] = []
     if tiers is not None and not tiers.empty:
+        # Tier sheet should cover all TN counties (preferred for dropdown)
         mao_tier_by_county = dict(zip(tiers["County_clean_up"], tiers["MAO_Tier"]))
         mao_range_by_county = dict(zip(tiers["County_clean_up"], tiers["MAO_Range_Str"]))
         tier_counties = sorted(tiers["County_clean_up"].dropna().unique().tolist())
 
     deal_counties = sorted(df.get("County_clean_up", pd.Series(dtype=str)).dropna().unique().tolist())
-
-    # Prefer tier sheet counties if present (covers all TN counties)
     all_county_options = tier_counties if tier_counties else deal_counties
 
     return all_county_options, mao_tier_by_county, mao_range_by_county
@@ -73,21 +71,34 @@ def compute_sold_cut_counts(
     rep_active: bool,
     dispo_rep_choice: str,
 ) -> tuple[dict[str, int], dict[str, int]]:
-    """Compute county sold/cut counts; Dispo rep filter applies only to SOLD."""
+    """Compute county sold/cut counts; Dispo rep filter applies only to SOLD.
+
+    Vectorized version (faster + clearer) than groupby.apply(lambda ...).
+    """
     if df_sold_for_view is None:
         df_sold_for_view = pd.DataFrame()
     if df_cut_for_view is None:
         df_cut_for_view = pd.DataFrame()
 
     df_conv = pd.concat([df_sold_for_view, df_cut_for_view], ignore_index=True)
+    if df_conv.empty:
+        return {}, {}
+
+    if "County_clean_up" not in df_conv.columns or "Status_norm" not in df_conv.columns:
+        return {}, {}
 
     # Dispo rep filter only narrows SOLD rows
     if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_conv.columns:
         df_conv = df_conv[(df_conv["Status_norm"] != "sold") | (df_conv["Dispo_Rep_clean"] == dispo_rep_choice)]
 
-    grp = df_conv.groupby("County_clean_up")
-    sold_counts = grp.apply(lambda g: (g["Status_norm"] == "sold").sum()).to_dict()
-    cut_counts = grp.apply(lambda g: (g["Status_norm"] == "cut loose").sum()).to_dict()
+    df_conv = df_conv.dropna(subset=["County_clean_up"]).copy()
+    df_conv["is_sold"] = df_conv["Status_norm"].eq("sold")
+    df_conv["is_cut"] = df_conv["Status_norm"].eq("cut loose")
+
+    grp = df_conv.groupby("County_clean_up", dropna=True)
+    sold_counts = grp["is_sold"].sum().astype(int).to_dict()
+    cut_counts = grp["is_cut"].sum().astype(int).to_dict()
+
     return sold_counts, cut_counts
 
 
@@ -99,7 +110,6 @@ def build_rank_df(
     health_by_county: dict[str, float],
 ) -> pd.DataFrame:
     """Build the rankings dataframe (County / Sold / Cut / Totals / Buyer count / Health / Close rate)."""
-
     counties = sorted(set(list(sold_counts.keys()) + list(cut_counts.keys())))
     rows: list[dict] = []
 
@@ -122,21 +132,14 @@ def build_rank_df(
         )
 
     return pd.DataFrame(rows)
-    
-def compute_gp_by_county(df_sold: pd.DataFrame) -> tuple[dict[str, float], dict[str, float]]:
-    """Compute total GP and avg GP per county (SOLD only).
 
-    Returns:
-      - gp_total_by_county: dict[county_up -> total_gp]
-      - gp_avg_by_county: dict[county_up -> avg_gp]
-    """
+
+def compute_gp_by_county(df_sold: pd.DataFrame) -> tuple[dict[str, float], dict[str, float]]:
+    """Compute total GP and avg GP per county (SOLD only)."""
     if df_sold is None or df_sold.empty:
         return {}, {}
 
-    if "County_clean_up" not in df_sold.columns:
-        return {}, {}
-
-    if "Gross_Profit" not in df_sold.columns:
+    if "County_clean_up" not in df_sold.columns or "Gross_Profit" not in df_sold.columns:
         return {}, {}
 
     df = df_sold.copy()
@@ -144,8 +147,132 @@ def compute_gp_by_county(df_sold: pd.DataFrame) -> tuple[dict[str, float], dict[
     df = df.dropna(subset=["County_clean_up"])
 
     grp = df.groupby("County_clean_up")["Gross_Profit_num"]
-
     gp_total = grp.sum(min_count=1).fillna(0)
     gp_avg = grp.mean().fillna(0)
 
     return gp_total.to_dict(), gp_avg.to_dict()
+
+
+def build_admin_metrics(df_time_sold_for_view: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, float], dict[str, float]]:
+    """Build Admin-only county metrics once (single source of truth).
+
+    Returns:
+      - admin_rank_df: columns: County, Total GP, Avg GP, Sold Deals
+      - gp_total_by_county: dict for map tooltips
+      - gp_avg_by_county: dict for map tooltips
+    """
+    if df_time_sold_for_view is None or df_time_sold_for_view.empty:
+        empty = pd.DataFrame(columns=["County", "Total GP", "Avg GP", "Sold Deals"])
+        return empty, {}, {}
+
+    df_admin_sold_only = (
+        df_time_sold_for_view[df_time_sold_for_view["Status_norm"] == "sold"]
+        if "Status_norm" in df_time_sold_for_view.columns
+        else df_time_sold_for_view
+    )
+
+    gp_total_by_county, gp_avg_by_county = compute_gp_by_county(df_admin_sold_only)
+
+    sold_deals_by_county = (
+        df_admin_sold_only.groupby("County_clean_up").size().to_dict()
+        if "County_clean_up" in df_admin_sold_only.columns and not df_admin_sold_only.empty
+        else {}
+    )
+
+    rows: list[dict] = []
+    counties = sorted(set(list(gp_total_by_county.keys()) + list(sold_deals_by_county.keys())))
+    for county_up in counties:
+        rows.append(
+            {
+                "County": str(county_up).title(),
+                "Total GP": float(gp_total_by_county.get(county_up, 0.0) or 0.0),
+                "Avg GP": float(gp_avg_by_county.get(county_up, 0.0) or 0.0),
+                "Sold Deals": int(sold_deals_by_county.get(county_up, 0) or 0),
+            }
+        )
+
+    admin_rank_df = pd.DataFrame(rows)
+    return admin_rank_df, gp_total_by_county, gp_avg_by_county
+
+
+def compute_admin_headline_metrics(df_sold_only: pd.DataFrame) -> dict[str, float | int]:
+    """Compute Admin dashboard headline numbers once (sold-only frame)."""
+    if df_sold_only is None or df_sold_only.empty:
+        return {"total_gp": 0.0, "total_wholesale": 0.0, "sold_count": 0, "avg_gp": 0.0}
+
+    df = df_sold_only.copy()
+
+    gp = pd.to_numeric(df.get("Gross_Profit"), errors="coerce").fillna(0)
+    total_gp = float(gp.sum())
+
+    # Wholesale: prefer Wholesale_Price_num, else Wholesale_Price if present
+    if "Wholesale_Price_num" in df.columns:
+        wholesale = pd.to_numeric(df["Wholesale_Price_num"], errors="coerce").fillna(0)
+    elif "Wholesale_Price" in df.columns:
+        wholesale = pd.to_numeric(df["Wholesale_Price"], errors="coerce").fillna(0)
+    else:
+        wholesale = pd.Series([0] * len(df), dtype="float")
+
+    total_wholesale = float(wholesale.sum())
+    sold_count = int(len(df))
+    avg_gp = float(total_gp / sold_count) if sold_count else 0.0
+
+    return {
+        "total_gp": total_gp,
+        "total_wholesale": total_wholesale,
+        "sold_count": sold_count,
+        "avg_gp": avg_gp,
+    }
+
+
+def build_county_gp_table(df_sold_only: pd.DataFrame) -> pd.DataFrame:
+    """Build the county-level table used on the Admin dashboard.
+
+    Columns:
+      County, Sold Deals, Total GP, Avg GP, (optional) Total Wholesale, Avg Wholesale
+    """
+    cols = ["County", "Sold Deals", "Total GP", "Avg GP", "Total Wholesale", "Avg Wholesale"]
+
+    if df_sold_only is None or df_sold_only.empty:
+        return pd.DataFrame(columns=cols)
+
+    if "County_clean_up" not in df_sold_only.columns:
+        return pd.DataFrame(columns=cols)
+
+    df = df_sold_only.copy()
+    df = df.dropna(subset=["County_clean_up"]).copy()
+
+    # Numeric conversions once
+    df["Gross_Profit_num"] = pd.to_numeric(df.get("Gross_Profit"), errors="coerce")
+
+    if "Wholesale_Price_num" in df.columns:
+        df["Wholesale_num"] = pd.to_numeric(df["Wholesale_Price_num"], errors="coerce")
+    elif "Wholesale_Price" in df.columns:
+        df["Wholesale_num"] = pd.to_numeric(df["Wholesale_Price"], errors="coerce")
+    else:
+        df["Wholesale_num"] = pd.NA
+
+    grp = df.groupby("County_clean_up", dropna=True)
+
+    out = pd.DataFrame(
+        {
+            "County": grp.size().index.astype(str).str.title(),
+            "Sold Deals": grp.size().astype(int).values,
+            "Total GP": grp["Gross_Profit_num"].sum(min_count=1).fillna(0).values,
+            "Avg GP": grp["Gross_Profit_num"].mean().fillna(0).values,
+        }
+    )
+
+    if df["Wholesale_num"].notna().any():
+        out["Total Wholesale"] = grp["Wholesale_num"].sum(min_count=1).fillna(0).values
+        out["Avg Wholesale"] = grp["Wholesale_num"].mean().fillna(0).values
+    else:
+        # keep columns present but empty to simplify downstream
+        out["Total Wholesale"] = 0.0
+        out["Avg Wholesale"] = 0.0
+
+    # Ensure numeric
+    for c in ["Total GP", "Avg GP", "Total Wholesale", "Avg Wholesale"]:
+        out[c] = pd.to_numeric(out[c], errors="coerce").fillna(0)
+
+    return out.reset_index(drop=True)

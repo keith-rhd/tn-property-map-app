@@ -1,7 +1,7 @@
 """app_controller.py
 
 Main orchestration for the Streamlit app.
-Now slim: pure "wiring" that calls services + views.
+Pure "wiring" that calls services + views.
 """
 
 from __future__ import annotations
@@ -12,31 +12,34 @@ import streamlit as st
 from admin import require_sales_manager_auth
 from admin_view import render_admin_tabs
 from app_sections import (
+    compute_buyer_context_from_df,
     render_acquisitions_sidebar,
     render_dispo_county_quick_lookup,
-    compute_buyer_context_from_df,
 )
 from config import DEFAULT_PAGE
 from controls import render_top_controls
 from controller_services import (
-    county_options,
     apply_admin_filters,
-    compute_sold_cut_counts,
+    build_admin_metrics,
+    build_county_gp_table,
     build_rank_df,
-    compute_gp_by_county,
+    compute_admin_headline_metrics,
+    compute_sold_cut_counts,
+    county_options,
 )
 from data import load_data, load_mao_tiers
+from enrich import build_top_buyers_dict
 from filters import Selection, build_view_df, compute_overall_stats
-from geo import load_tn_geojson, build_county_adjacency
+from geo import build_county_adjacency, load_tn_geojson
 from map_view import render_map_and_details
 from scoring import compute_health_score
-from enrich import build_top_buyers_dict
 from ui_sidebar import (
-    render_team_view_toggle,
+    render_acquisitions_guidance,
     render_overall_stats,
     render_rankings,
-    render_acquisitions_guidance,
+    render_team_view_toggle,
 )
+
 
 def fmt_dollars_short(x: float) -> str:
     """Format dollars like $39K / $3.18M / $950."""
@@ -51,6 +54,7 @@ def fmt_dollars_short(x: float) -> str:
         return f"${x/1_000:.0f}K"
     return f"${x:,.0f}"
 
+
 def run_app() -> None:
     st.set_page_config(**DEFAULT_PAGE)
     st.title("Closed RHD Properties Map")
@@ -63,14 +67,12 @@ def run_app() -> None:
 
     all_county_options, mao_tier_by_county, mao_range_by_county = county_options(df, tiers)
 
-    # Sidebar view toggle
     team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
     st.session_state["team_view"] = team_view
 
     if team_view == "Admin":
         require_sales_manager_auth()
 
-    # Top controls
     controls = render_top_controls(team_view=team_view, df=df)
 
     mode = controls.mode
@@ -80,7 +82,6 @@ def run_app() -> None:
     dispo_rep_choice = controls.dispo_rep_choice
     rep_active = controls.rep_active
 
-    # Year-filtered base frames
     df_time_sold_for_view = controls.fd.df_time_sold
     df_time_cut_for_view = controls.fd.df_time_cut
 
@@ -98,23 +99,33 @@ def run_app() -> None:
             dispo_rep_choice_admin=controls.dispo_rep_choice_admin,
         )
 
-    # NEW: Admin-only GP per county for map tooltips
+    # Admin-only metrics (compute ONCE; shared by tooltips + rankings)
+    admin_rank_df = pd.DataFrame()
     gp_total_by_county: dict[str, float] = {}
     gp_avg_by_county: dict[str, float] = {}
+    admin_dashboard_headline: dict = {}
+    admin_county_gp_table = pd.DataFrame()
+    admin_sold_only = pd.DataFrame()
+
     if team_view == "Admin":
-        gp_total_by_county, gp_avg_by_county = compute_gp_by_county(
+        # Sold-only frame for Admin dashboard
+        admin_sold_only = (
             df_time_sold_for_view[df_time_sold_for_view["Status_norm"] == "sold"]
             if "Status_norm" in df_time_sold_for_view.columns
             else df_time_sold_for_view
         )
 
+        admin_rank_df, gp_total_by_county, gp_avg_by_county = build_admin_metrics(df_time_sold_for_view)
+
+        # Option B: precompute dashboard headline + county table once
+        admin_dashboard_headline = compute_admin_headline_metrics(admin_sold_only)
+        admin_county_gp_table = build_county_gp_table(admin_sold_only)
 
     # Buyer context (sold-only)
     df_sold_buyers, buyer_count_by_county, buyers_set_by_county = compute_buyer_context_from_df(
         df_time_sold_for_view if team_view in ["Dispo", "Admin"] else controls.fd.df_time_sold
     )
 
-    # Acquisitions sidebar
     render_acquisitions_sidebar(
         team_view=team_view,
         all_county_options=all_county_options,
@@ -127,7 +138,6 @@ def run_app() -> None:
         render_acquisitions_guidance=render_acquisitions_guidance,
     )
 
-    # Build selection + df_view
     sel = Selection(
         mode=mode,
         year_choice=str(year_choice),
@@ -138,7 +148,6 @@ def run_app() -> None:
 
     df_view = build_view_df(df_time_sold_for_view, df_time_cut_for_view, sel)
 
-    # Dispo quick lookup
     render_dispo_county_quick_lookup(
         team_view=team_view,
         all_county_options=all_county_options,
@@ -146,10 +155,10 @@ def run_app() -> None:
         df_time_sold_override=df_time_sold_for_view,
     )
 
-    # Top buyers (sold only)
-    top_buyers_dict = build_top_buyers_dict(df_time_sold_for_view if team_view == "Dispo" else controls.fd.df_time_sold)
+    top_buyers_dict = build_top_buyers_dict(
+        df_time_sold_for_view if team_view == "Dispo" else controls.fd.df_time_sold
+    )
 
-    # Sold/cut counts + health
     sold_counts, cut_counts = compute_sold_cut_counts(
         df_time_sold_for_view,
         df_time_cut_for_view,
@@ -175,58 +184,29 @@ def run_app() -> None:
             default_rank_metric="Health score",
             rank_options=["Health score", "Buyer count"],
         )
-    
+
     elif team_view == "Admin":
-        df_admin_sold_only = (
-            df_time_sold_for_view[df_time_sold_for_view["Status_norm"] == "sold"]
-            if "Status_norm" in df_time_sold_for_view.columns
-            else df_time_sold_for_view
-        )
-    
-        gp_total_by_county, gp_avg_by_county = compute_gp_by_county(df_admin_sold_only)
-    
-        sold_deals_by_county = (
-            df_admin_sold_only.groupby("County_clean_up").size().to_dict()
-            if "County_clean_up" in df_admin_sold_only.columns and not df_admin_sold_only.empty
-            else {}
-        )
-    
-        admin_rank_rows = []
-        for county_up, total_gp in gp_total_by_county.items():
-            admin_rank_rows.append(
-                {
-                    "County": str(county_up).title(),
-                    "Total GP": float(total_gp or 0.0),
-                    "Avg GP": float(gp_avg_by_county.get(county_up, 0.0)),
-                    "Sold Deals": int(sold_deals_by_county.get(county_up, 0)),
-                }
+        if admin_rank_df.empty:
+            st.sidebar.info("No Admin metrics available for current filters.")
+        else:
+            admin_rank_df = admin_rank_df.copy()
+            admin_rank_df["Total GP ($)"] = admin_rank_df["Total GP"].apply(fmt_dollars_short)
+            admin_rank_df["Avg GP ($)"] = admin_rank_df["Avg GP"].apply(fmt_dollars_short)
+
+            render_rankings(
+                admin_rank_df[["County", "Total GP ($)", "Avg GP ($)", "Sold Deals", "Total GP", "Avg GP"]],
+                default_rank_metric="Total GP ($)",
+                rank_options=["Total GP ($)", "Avg GP ($)", "Sold Deals"],
+                sort_by_map={"Total GP ($)": "Total GP", "Avg GP ($)": "Avg GP"},
             )
-    
-        admin_rank_df = pd.DataFrame(admin_rank_rows)
-        
-        admin_rank_df["Total GP ($)"] = admin_rank_df["Total GP"].apply(fmt_dollars_short)
-        admin_rank_df["Avg GP ($)"] = admin_rank_df["Avg GP"].apply(fmt_dollars_short)
-        
-        render_rankings(
-            admin_rank_df[["County", "Total GP ($)", "Avg GP ($)", "Sold Deals", "Total GP", "Avg GP"]],
-            default_rank_metric="Total GP ($)",
-            rank_options=["Total GP ($)", "Avg GP ($)", "Sold Deals"],
-            sort_by_map={"Total GP ($)": "Total GP", "Avg GP ($)": "Avg GP"},
-        )
-        
+
     else:
-        # Acquisitions: rank counties by # of buyers (most buyers first)
         acq_rows = []
         for county_up, buyer_ct in (buyer_count_by_county or {}).items():
-            acq_rows.append(
-                {
-                    "County": str(county_up).title(),
-                    "Buyer count": int(buyer_ct or 0),
-                }
-            )
-    
+            acq_rows.append({"County": str(county_up).title(), "Buyer count": int(buyer_ct or 0)})
+
         acq_rank_df = pd.DataFrame(acq_rows)
-    
+
         if acq_rank_df.empty:
             st.sidebar.info("No buyer counts available for current filters.")
         else:
@@ -236,7 +216,6 @@ def run_app() -> None:
                 rank_options=["Buyer count"],
             )
 
-    # Overall stats (Dispo only)
     if team_view == "Dispo":
         stats = compute_overall_stats(df_time_sold_for_view, controls.fd.df_time_cut)
         render_overall_stats(
@@ -248,7 +227,6 @@ def run_app() -> None:
             close_rate_str=stats["close_rate_str"],
         )
 
-    # Buyer sold counts by county (for buyer-active map tooltips)
     buyer_sold_counts: dict[str, int] = {}
     if buyer_active and mode in ["Sold", "Both"] and "Buyer_clean" in df_time_sold_for_view.columns:
         buyer_sold_counts = (
@@ -275,8 +253,12 @@ def run_app() -> None:
         gp_avg_by_county=gp_avg_by_county,
     )
 
-    # Admin: Dashboard + Map tabs. Others: Map only.
     if team_view == "Admin":
-        render_admin_tabs(df_time_sold_for_view=df_time_sold_for_view, map_kwargs=map_kwargs)
+        render_admin_tabs(
+            df_sold_only_for_dashboard=admin_sold_only,
+            dashboard_headline=admin_dashboard_headline,
+            county_gp_table=admin_county_gp_table,
+            map_kwargs=map_kwargs,
+        )
     else:
         render_map_and_details(**map_kwargs)

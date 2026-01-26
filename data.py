@@ -273,7 +273,9 @@ def load_data() -> pd.DataFrame:
                 on="County_key",
                 how="left",
             )
-    except Exception:
+    except Exception as e:
+        # Internal app: keep running, but surface what happened.
+        st.warning(f"Could not load/merge MAO tiers (showing blank tiers). Details: {type(e).__name__}")
         df["MAO_Tier"] = ""
         df["MAO_Range_Str"] = ""
 
