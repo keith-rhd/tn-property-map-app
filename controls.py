@@ -64,7 +64,7 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
 
     year_options = ["All years"] + years_available
     if team_view == "Admin":
-        year_options = ["Rolling 12 months"] + year_options
+        year_options = ["All years", "Rolling 12 months"] + year_options
 
     with col2:
         year_choice = st.selectbox("Year", year_options)
