@@ -68,8 +68,16 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
     years_available = (
         sorted([int(y) for y in df["Year"].dropna().unique().tolist()]) if "Year" in df.columns else []
     )
+
+    # Year selector:
+    # - Everyone can choose a specific calendar year or "All years"
+    # - Admins also get "Rolling 12 months" (relative to today)
+    year_options = ["All years"] + years_available
+    if team_view == "Admin":
+        year_options = ["Rolling 12 months"] + year_options
+
     with col2:
-        year_choice = st.selectbox("Year", ["All years"] + years_available, index=0)
+        year_choice = st.selectbox("Year", year_options, index=0)
 
     fd = prepare_filtered_data(df, year_choice)
 
@@ -90,75 +98,54 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
             if mode in ["Sold", "Both"]:
                 labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
                 chosen_label = st.selectbox("Buyer", labels, index=0)
-                buyer_choice = label_to_buyer[chosen_label]
-            else:
-                buyer_choice = "All buyers"
-                st.selectbox("Buyer", ["All buyers"], disabled=True)
+                buyer_choice = label_to_buyer.get(chosen_label, "All buyers")
+                buyer_active = buyer_choice != "All buyers"
 
-        buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
-
-        # Dispo Rep filter
+        # Rep filter (sold only)
         with col4:
-            rep_values: list[str] = []
-            if mode in ["Sold", "Both"] and "Dispo_Rep_clean" in fd.df_time_sold.columns:
-                rep_values = sorted(
+            dispo_reps = ["All reps"]
+            if "Dispo_Rep_clean" in fd.df_time_sold.columns:
+                dispo_reps += sorted(
                     [
                         r
-                        for r in fd.df_time_sold["Dispo_Rep_clean"]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                        .unique()
-                        .tolist()
+                        for r in fd.df_time_sold["Dispo_Rep_clean"].astype(str).fillna("").str.strip().unique().tolist()
                         if r
                     ]
                 )
+            dispo_rep_choice = st.selectbox("Dispo Rep (Sold only)", dispo_reps, index=0)
+            rep_active = dispo_rep_choice != "All reps"
 
-            options = ["All reps"] + rep_values
-            saved = st.session_state.get("dispo_rep_choice", "All reps")
-            idx = options.index(saved) if saved in options else 0
-
-            dispo_rep_choice = st.selectbox(
-                "Dispo rep",
-                options,
-                index=idx,
-                disabled=(mode == "Cut Loose"),
-                key="dispo_rep_choice",
-            )
-
-            rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
+    elif team_view == "Acq":
+        # Acq view uses buyer + county quick lookup in sidebar, no extra controls here.
+        pass
 
     elif team_view == "Admin":
+        # Admin controls: Buyer + Market + Reps
         with col3:
-            markets: list[str] = []
-            if "Market_clean" in df.columns:
-                markets = sorted(
-                    [m for m in df["Market_clean"].dropna().astype(str).str.strip().unique().tolist() if m]
-                )
-            market_choice = st.selectbox("Market", ["All markets"] + markets, index=0)
+            if mode in ["Sold", "Both"]:
+                labels, label_to_buyer = build_buyer_labels(fd.buyer_momentum, fd.buyers_plain)
+                chosen_label = st.selectbox("Buyer", labels, index=0)
+                buyer_choice = label_to_buyer.get(chosen_label, "All buyers")
+                buyer_active = buyer_choice != "All buyers"
 
         with col4:
-            acq_reps: list[str] = []
-            if "Acquisition_Rep_clean" in df.columns:
-                acq_reps = sorted(
-                    [r for r in df["Acquisition_Rep_clean"].dropna().astype(str).str.strip().unique().tolist() if r]
-                )
-            acq_rep_choice = st.selectbox("Acquisition Rep", ["All acquisition reps"] + acq_reps, index=0)
+            market_vals = ["All markets"]
+            if "Market_clean" in df.columns:
+                market_vals += sorted([m for m in df["Market_clean"].astype(str).str.strip().unique().tolist() if m])
+            market_choice = st.selectbox("Market", market_vals, index=0)
 
         with col5:
-            dispo_reps: list[str] = []
-            if "Dispo_Rep_clean" in df.columns:
-                dispo_reps = sorted(
-                    [r for r in df["Dispo_Rep_clean"].dropna().astype(str).str.strip().unique().tolist() if r]
-                )
-            dispo_rep_choice_admin = st.selectbox("Dispo rep", ["All reps"] + dispo_reps, index=0)
+            # Stack two rep pickers vertically
+            acq_vals = ["All acquisition reps"]
+            if "Acq_Rep_clean" in df.columns:
+                acq_vals += sorted([r for r in df["Acq_Rep_clean"].astype(str).str.strip().unique().tolist() if r])
 
-    else:
-        # Acquisitions: show disabled buyer/rep to keep layout familiar
-        with col3:
-            st.selectbox("Buyer", ["All buyers"], disabled=True)
-        with col4:
-            st.selectbox("Dispo rep", ["All reps"], disabled=True, key="dispo_rep_choice")
+            dispo_vals = ["All reps"]
+            if "Dispo_Rep_clean" in df.columns:
+                dispo_vals += sorted([r for r in df["Dispo_Rep_clean"].astype(str).str.strip().unique().tolist() if r])
+
+            acq_rep_choice = st.selectbox("Acq Rep", acq_vals, index=0)
+            dispo_rep_choice_admin = st.selectbox("Dispo Rep", dispo_vals, index=0)
 
     return ControlsResult(
         mode=mode,
