@@ -28,7 +28,29 @@ def get_years_available(df: pd.DataFrame) -> List[int]:
 def split_by_year(df: pd.DataFrame, year_choice) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df_time = df.copy()
 
-    if year_choice != "All years":
+    if year_choice == "Last 12 months":
+        # Rolling 12 months ending today (based on the Date column).
+        if "Date" not in df_time.columns:
+            # Safety fallback: if Date is missing, behave like "All years".
+            df_sold = df_time[df_time["Status_norm"] == "sold"].copy()
+            df_cut = df_time[df_time["Status_norm"] == "cut loose"].copy()
+        else:
+            end_date = pd.Timestamp.today().normalize()
+            start_date = end_date - pd.DateOffset(months=12)
+
+            sold_mask = (
+                (df_time["Status_norm"] == "sold")
+                & (df_time["Date"].notna())
+                & (df_time["Date"] >= start_date)
+            )
+            df_sold = df_time[sold_mask].copy()
+
+            cut_mask = df_time["Status_norm"] == "cut loose"
+            cut_in_window = cut_mask & (df_time["Date"].notna()) & (df_time["Date"] >= start_date)
+            cut_no_date = cut_mask & df_time["Date"].isna()  # keep undated cut-loose records
+            df_cut = pd.concat([df_time[cut_in_window], df_time[cut_no_date]], ignore_index=True)
+
+    elif year_choice != "All years":
         y = int(year_choice)
         df_sold = df_time[(df_time["Status_norm"] == "sold") & (df_time["Year"] == y)].copy()
 
