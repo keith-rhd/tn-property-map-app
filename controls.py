@@ -69,7 +69,7 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
         sorted([int(y) for y in df["Year"].dropna().unique().tolist()]) if "Year" in df.columns else []
     )
     with col2:
-        year_choice = st.selectbox("Year", ["All years"] + years_available, index=0)
+        year_choice = st.selectbox("Year", ["All years"] + years_available + ["Last 12 months"], index=0)
 
     fd = prepare_filtered_data(df, year_choice)
 
