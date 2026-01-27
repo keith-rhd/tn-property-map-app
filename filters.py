@@ -34,7 +34,7 @@ def split_by_year(df: pd.DataFrame, year_choice) -> Tuple[pd.DataFrame, pd.DataF
 
     # ✅ Special option: rolling 12 months (relative to "now" on Streamlit server)
     # Uses Date_dt which is created upstream in data normalization.
-    if year_choice == "Rolling 12 months":
+    if year_choice == "Last 12 months":
         end_dt = pd.Timestamp.now().normalize()
         start_dt = end_dt - pd.DateOffset(months=12)
 
