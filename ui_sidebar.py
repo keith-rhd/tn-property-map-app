@@ -109,7 +109,7 @@ def render_acquisitions_guidance(
     )
 
     if chosen_title == PLACEHOLDER:
-        chosen_key = selected_county_key.upper()
+        chosen_key = ""
     else:
         chosen_key = title_to_key.get(chosen_title, selected_county_key.upper())
 
