@@ -86,11 +86,19 @@ def render_acquisitions_guidance(
     """
     st.sidebar.markdown("## MAO guidance")
 
-    options_title = [c.title() for c in (county_options or [])]
+    PLACEHOLDER = "- Select a County -"
+    
+    options_title = [PLACEHOLDER] + [c.title() for c in (county_options or [])]
     key_to_title = {c.upper(): c.title() for c in (county_options or [])}
     title_to_key = {c.title(): c.upper() for c in (county_options or [])}
 
-    default_title = key_to_title.get(selected_county_key.upper(), options_title[0] if options_title else "—")
+
+    default_title = (
+        key_to_title.get(selected_county_key.upper())
+        if selected_county_key
+        else PLACEHOLDER
+    )
+
 
     chosen_title = st.sidebar.selectbox(
         "County quick search",
@@ -100,7 +108,11 @@ def render_acquisitions_guidance(
         help="Use this if you can’t easily click the county on the map.",
     )
 
-    chosen_key = title_to_key.get(chosen_title, selected_county_key.upper())
+    if chosen_title == PLACEHOLDER:
+        chosen_key = selected_county_key.upper()
+    else:
+        chosen_key = title_to_key.get(chosen_title, selected_county_key.upper())
+
 
     st.sidebar.caption("Tip: you can also click a county on the map to update this.")
 
