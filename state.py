@@ -20,6 +20,8 @@ def init_state() -> None:
         # View selection
         "team_view": "Dispo",  # Dispo | Acquisitions | Admin
 
+        "county_quick_search": placeholder,  # shared dropdown title
+
         # County selection
         "selected_county": "",
         "acq_selected_county": "",
