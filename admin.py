@@ -135,11 +135,38 @@ def render_sales_manager_dashboard(
 
     st.markdown(f"#### GP by {period_label}")
     gp_by_period = df.groupby("Period")["Gross_Profit"].sum().sort_index()
-    st.line_chart(gp_by_period)
-
+    
+    gp_chart_df = gp_by_period.reset_index()
+    gp_chart_df.columns = ["Period", "Gross Profit"]
+    
+    gp_chart = (
+        alt.Chart(gp_chart_df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("Period:N", sort=list(gp_chart_df["Period"]), title=period_label.title()),
+            y=alt.Y("Gross Profit:Q", title="Gross Profit"),
+            tooltip=["Period", alt.Tooltip("Gross Profit:Q", format=",.0f")],
+        )
+    )
+    st.altair_chart(gp_chart, use_container_width=True)
+    
     st.markdown(f"#### Sold deals by {period_label}")
     deals_by_period = df.groupby("Period").size().sort_index()
-    st.bar_chart(deals_by_period)
+    
+    deals_chart_df = deals_by_period.reset_index()
+    deals_chart_df.columns = ["Period", "Sold Deals"]
+    
+    deals_chart = (
+        alt.Chart(deals_chart_df)
+        .mark_bar()
+        .encode(
+            x=alt.X("Period:N", sort=list(deals_chart_df["Period"]), title=period_label.title()),
+            y=alt.Y("Sold Deals:Q", title="Sold Deals"),
+            tooltip=["Period", "Sold Deals"],
+        )
+    )
+    st.altair_chart(deals_chart, use_container_width=True)
+
 
     # ---- Pies (light compute is fine) ----
     pie_left, pie_right = st.columns(2)
