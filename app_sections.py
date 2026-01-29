@@ -7,7 +7,6 @@ from config import C
 from filters import compute_overall_stats
 from enrich import build_top_buyers_dict
 
-
 # -----------------------------
 # Buyer context helpers
 # -----------------------------
@@ -66,11 +65,7 @@ def render_acquisitions_sidebar(
         st.session_state["acq_county_select"] = st.session_state["acq_pending_county_title"]
         del st.session_state["acq_pending_county_title"]
 
-    selected = st.session_state.get("acq_selected_county")
-    if not selected:
-        selected = "DAVIDSON" if "DAVIDSON" in [c.upper() for c in all_county_options] else (
-            all_county_options[0] if all_county_options else ""
-        )
+    selected = st.session_state.get("acq_selected_county", "")
     selected = str(selected).strip().upper()
 
     buyer_count = int(buyer_count_by_county.get(selected, 0))
