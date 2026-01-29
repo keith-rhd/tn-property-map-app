@@ -208,3 +208,51 @@ def render_rankings(
     show_cols = [c for c in df_sorted.columns if c not in hide_cols]
     st.sidebar.dataframe(df_sorted[show_cols], use_container_width=True, hide_index=True)
 
+def render_dispo_county_quick_search(*, all_county_options: list[str]) -> str:
+    """
+    Dispo county quick search dropdown + placeholder message.
+    Returns selected county key in UPPERCASE, or "" if none selected.
+    Handles updating st.session_state["selected_county"] + rerun when dropdown changes.
+    """
+    st.sidebar.markdown("## County stats")
+    st.sidebar.caption("County quick search")
+
+    placeholder = "- Select a County -"
+    county_titles = [c.title() for c in all_county_options]
+    options_title = [placeholder] + county_titles
+
+    title_to_key = {c.title(): c.upper() for c in all_county_options}
+
+    # Keep dropdown state consistent across reruns
+    curr_dd = st.session_state.get("dispo_county_lookup", placeholder)
+    prev_dd = st.session_state.get("_dispo_prev_county_lookup", curr_dd)
+    user_changed_dropdown = curr_dd != prev_dd
+
+    chosen_title = st.sidebar.selectbox(
+        "County quick search",
+        options_title,
+        index=options_title.index(curr_dd) if curr_dd in options_title else 0,
+        key="dispo_county_lookup",
+        label_visibility="collapsed",
+        help="Use this if you can’t easily click the county on the map.",
+    )
+
+    st.session_state["_dispo_prev_county_lookup"] = st.session_state.get("dispo_county_lookup", placeholder)
+    st.sidebar.caption("Tip: you can also click a county on the map to update this.")
+
+    if chosen_title == placeholder:
+        st.sidebar.info("Select a county to see Dispo stats here.")
+        st.sidebar.markdown("---")
+        return ""
+
+    new_key = title_to_key.get(chosen_title, "").strip().upper()
+    prev_key = str(st.session_state.get("selected_county", "")).strip().upper()
+
+    # Only force a rerun if the user actively changed dropdown selection
+    if user_changed_dropdown and new_key and new_key != prev_key:
+        st.session_state["selected_county"] = new_key
+        st.session_state["county_source"] = "dropdown"
+        st.rerun()
+
+    return new_key
+
