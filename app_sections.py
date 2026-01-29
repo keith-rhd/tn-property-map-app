@@ -7,7 +7,6 @@ from config import C
 from filters import compute_overall_stats
 from enrich import build_top_buyers_dict
 
-
 # -----------------------------
 # Buyer context helpers
 # -----------------------------
