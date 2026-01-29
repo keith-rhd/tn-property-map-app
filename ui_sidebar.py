@@ -86,7 +86,7 @@ def render_acquisitions_guidance(
     """
     st.sidebar.markdown("## MAO guidance")
 
-    PLACEHOLDER = "-Select a County-"
+    PLACEHOLDER = "--Select a county--"
     
     options_title = [PLACEHOLDER] + [c.title() for c in (county_options or [])]
     key_to_title = {c.upper(): c.title() for c in (county_options or [])}
