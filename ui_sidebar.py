@@ -55,11 +55,14 @@ def render_team_view_toggle(default: str = "Dispo") -> str:
     """Sidebar toggle between Dispo, Acquisitions, and Admin views."""
     st.sidebar.markdown("## Team view")
     options = ["Dispo", "Acquisitions", "Admin"]
-    index = 0 if default not in options else options.index(default)
+
+    # Initialize session state once (only if missing)
+    st.session_state.setdefault("team_view", default if default in options else "Dispo")
+
     team_view = st.sidebar.radio(
         "Choose a view",
         options,
-        index=index,
+        key="team_view",                 # ✅ this makes the widget the source of truth
         label_visibility="collapsed",
     )
     return team_view
