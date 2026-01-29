@@ -2,16 +2,67 @@
 import pandas as pd
 import streamlit as st
 
+def render_county_quick_search(
+    *,
+    county_options: list[str],
+    selected_county_key: str,
+    widget_key: str = "county_quick_search",
+    placeholder: str = "— Select a county —",
+    label: str = "County quick search",
+    help_text: str = "Use this if you can’t easily click the county on the map.",
+) -> str:
+    """Shared county quick search dropdown.
+
+    - Displays Title Case county names (+ placeholder)
+    - Returns selected county key in UPPERCASE, or "" if placeholder selected
+    - Keeps dropdown synced to map clicks via st.session_state["selected_county"] when county_source == "map"
+    """
+    options = county_options or []
+    options_title = [placeholder] + [c.title() for c in options]
+    key_to_title = {c.upper(): c.title() for c in options}
+    title_to_key = {c.title(): c.upper() for c in options}
+
+    # If the map was the last input, keep the dropdown in sync with selected_county.
+    if st.session_state.get("county_source") == "map":
+        sel_key = str(st.session_state.get("selected_county", "")).strip().upper()
+        if sel_key and sel_key in key_to_title:
+            st.session_state[widget_key] = key_to_title[sel_key]
+
+    default_title = (
+        key_to_title.get(str(selected_county_key).strip().upper(), placeholder)
+        if selected_county_key
+        else placeholder
+    )
+
+    chosen_title = st.sidebar.selectbox(
+        label,
+        options_title if options_title else ["—"],
+        index=(options_title.index(default_title) if default_title in options_title else 0),
+        key=widget_key,
+        label_visibility="collapsed",
+        help=help_text,
+    )
+
+    st.sidebar.caption("Tip: you can also click a county on the map to update this.")
+
+    if chosen_title == placeholder:
+        return ""
+
+    return title_to_key.get(chosen_title, "").strip().upper()
+
 
 def render_team_view_toggle(default: str = "Dispo") -> str:
     """Sidebar toggle between Dispo, Acquisitions, and Admin views."""
     st.sidebar.markdown("## Team view")
     options = ["Dispo", "Acquisitions", "Admin"]
-    index = 0 if default not in options else options.index(default)
+
+    # Initialize session state once (only if missing)
+    st.session_state.setdefault("team_view", default if default in options else "Dispo")
+
     team_view = st.sidebar.radio(
         "Choose a view",
         options,
-        index=index,
+        key="team_view",                 # ✅ this makes the widget the source of truth
         label_visibility="collapsed",
     )
     return team_view
@@ -86,40 +137,19 @@ def render_acquisitions_guidance(
     """
     st.sidebar.markdown("## MAO guidance")
 
-    PLACEHOLDER = "— Select a county —"
-    
-    options_title = [PLACEHOLDER] + [c.title() for c in (county_options or [])]
-    key_to_title = {c.upper(): c.title() for c in (county_options or [])}
-    title_to_key = {c.title(): c.upper() for c in (county_options or [])}
-    
-    default_title = key_to_title.get(selected_county_key.upper(), PLACEHOLDER) if selected_county_key else PLACEHOLDER
-
-    default_title = (
-        key_to_title.get(selected_county_key.upper())
-        if selected_county_key
-        else PLACEHOLDER
+    chosen_key = render_county_quick_search(
+        county_options=county_options,
+        selected_county_key=selected_county_key,
+        widget_key="county_quick_search",
+        placeholder="— Select a county —",
     )
 
-
-    chosen_title = st.sidebar.selectbox(
-        "County quick search",
-        options_title if options_title else ["—"],
-        index=(options_title.index(default_title) if options_title and default_title in options_title else 0),
-        key="acq_county_select",
-        help="Use this if you can’t easily click the county on the map.",
-    )
-
-    st.sidebar.caption("Tip: you can also click a county on the map to update this.")
-
-    if chosen_title == PLACEHOLDER:
+    if not chosen_key:
         st.sidebar.info("Select a county to see Acquisitions stats here.")
         st.sidebar.markdown("---")
         return ""
 
-    if chosen_title == PLACEHOLDER:
-        chosen_key = ""
-    else:
-        chosen_key = "" if chosen_title == PLACEHOLDER else title_to_key.get(chosen_title, selected_county_key.upper())
+    chosen_title = chosen_key.title()
 
     st.sidebar.markdown(
         f"""<div style="
@@ -142,7 +172,6 @@ def render_acquisitions_guidance(
         st.sidebar.dataframe(neighbor_breakdown, use_container_width=True, hide_index=True)
 
     return chosen_key
-
 
 def render_rankings(
     df_rank,

@@ -68,7 +68,6 @@ def run_app() -> None:
     all_county_options, mao_tier_by_county, mao_range_by_county = county_options(df, tiers)
 
     team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
-    st.session_state["team_view"] = team_view
 
     if team_view == "Admin":
         require_sales_manager_auth()

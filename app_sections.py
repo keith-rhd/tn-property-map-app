@@ -6,6 +6,7 @@ import streamlit as st
 from config import C
 from filters import compute_overall_stats
 from enrich import build_top_buyers_dict
+from ui_sidebar import render_county_quick_search
 
 # -----------------------------
 # Buyer context helpers
@@ -111,9 +112,10 @@ def render_dispo_county_quick_lookup(
     df_time_sold_override: pd.DataFrame | None = None,
 ) -> None:
     """
-    Renders your Dispo county quick search block.
-    If df_time_sold_override is provided, it is used for sold_scope + top buyers
-    (so Dispo Rep filtering stays consistent).
+    Renders the Dispo county quick search block.
+
+    Uses the shared county dropdown so it behaves the same across views and
+    keeps the selected county sticky when switching between views.
     """
     if team_view != "Dispo":
         return
@@ -123,52 +125,28 @@ def render_dispo_county_quick_lookup(
     st.sidebar.markdown("## County stats")
     st.sidebar.caption("County quick search")
 
-    placeholder = "— Select a county —"
-    county_titles = [c.title() for c in all_county_options]
-    options_title = [placeholder] + county_titles
-    title_to_key = {c.title(): c.upper() for c in all_county_options}
-    key_to_title = {c.upper(): c.title() for c in all_county_options}
-
-    curr_dd = st.session_state.get("dispo_county_lookup", placeholder)
-    prev_dd = st.session_state.get("_dispo_prev_county_lookup", curr_dd)
-    user_changed_dropdown = curr_dd != prev_dd
-
-    if st.session_state.get("county_source") == "map" and not user_changed_dropdown:
-        sel_key = str(st.session_state.get("selected_county", "")).strip().upper()
-        if sel_key and sel_key in key_to_title:
-            st.session_state["dispo_county_lookup"] = key_to_title[sel_key]
-
-    st.session_state.setdefault("dispo_county_lookup", placeholder)
-
-    chosen_title = st.sidebar.selectbox(
-        "County quick search",
-        options_title,
-        index=options_title.index(st.session_state["dispo_county_lookup"])
-        if st.session_state["dispo_county_lookup"] in options_title
-        else 0,
-        key="dispo_county_lookup",
-        label_visibility="collapsed",
-        help="Use this if you can’t easily click the county on the map.",
+    chosen_key = render_county_quick_search(
+        county_options=all_county_options,
+        selected_county_key=str(st.session_state.get("selected_county", "")).strip().upper(),
+        widget_key="county_quick_search",
+        placeholder="— Select a county —",
     )
 
-    st.session_state["_dispo_prev_county_lookup"] = st.session_state.get("dispo_county_lookup", placeholder)
-    st.sidebar.caption("Tip: you can also click a county on the map to update this.")
-
-    if chosen_title == placeholder:
+    if not chosen_key:
         st.sidebar.info("Select a county to see Dispo stats here.")
         st.sidebar.markdown("---")
         return
 
-    new_key = title_to_key.get(chosen_title, "").strip().upper()
     prev_key = str(st.session_state.get("selected_county", "")).strip().upper()
-
-    if new_key and new_key != prev_key:
-        st.session_state["selected_county"] = new_key
+    if chosen_key != prev_key:
+        st.session_state["selected_county"] = chosen_key
         st.session_state["county_source"] = "dropdown"
         st.rerun()
 
-    sold_scope = df_time_sold_for_stats[df_time_sold_for_stats["County_clean_up"] == new_key]
-    cut_scope = fd.df_time_cut[fd.df_time_cut["County_clean_up"] == new_key]
+    chosen_title = chosen_key.title()
+
+    sold_scope = df_time_sold_for_stats[df_time_sold_for_stats["County_clean_up"] == chosen_key]
+    cut_scope = fd.df_time_cut[fd.df_time_cut["County_clean_up"] == chosen_key]
     cstats = compute_overall_stats(sold_scope, cut_scope)
 
     sold_ct = int(cstats["sold_total"])
@@ -197,7 +175,7 @@ def render_dispo_county_quick_lookup(
     st.sidebar.markdown("---")
 
     top_buyers_dict = build_top_buyers_dict(df_time_sold_for_stats)
-    top_list = (top_buyers_dict.get(new_key, []) or [])[:10]
+    top_list = (top_buyers_dict.get(chosen_key, []) or [])[:10]
 
     st.sidebar.markdown("## Top buyers in selected county")
     st.sidebar.caption(f"County: **{chosen_title}** (sold only)")
@@ -211,8 +189,7 @@ def render_dispo_county_quick_lookup(
         st.sidebar.info("No sold buyers found for this county yet.")
 
     st.sidebar.markdown("---")
-
-
+    
 # -----------------------------
 # Map click handling
 # -----------------------------

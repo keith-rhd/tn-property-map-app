@@ -20,15 +20,14 @@ def init_state() -> None:
         # View selection
         "team_view": "Dispo",  # Dispo | Acquisitions | Admin
 
+
         # County selection
         "selected_county": "",
         "acq_selected_county": "",
         "county_source": "",  # map | dropdown | ""
         "last_map_clicked_county": "",
 
-        # Dispo quick lookup dropdown
-        "dispo_county_lookup": placeholder,
-        "_dispo_prev_county_lookup": placeholder,
+        "county_quick_search": placeholder,  # shared dropdown title
 
         # Dispo Rep filter memory
         "dispo_rep_choice": "All reps",
