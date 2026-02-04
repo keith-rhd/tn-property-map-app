@@ -133,15 +133,18 @@ def render_contract_calculator(
         return
 
     # Proposed contract price input (simple).
-    input_price = float(
-        st.number_input(
-            "Proposed Contract Price ($)",
-            min_value=0,
-            value=int(st.session_state.get("acq_contract_price", 150000)),
-            step=5000,
-            key="acq_contract_price",
+    price_col, _ = st.columns([0.35, 0.65])
+
+    with price_col:
+        input_price = float(
+            st.number_input(
+                "Proposed Contract Price ($)",
+                min_value=0,
+                value=int(st.session_state.get("acq_contract_price", 150000)),
+                step=5000,
+                key="acq_contract_price",
+            )
         )
-    )
 
     # Build county dataset (sold + cut) with a single effective_price column.
     sold = df_time_sold_for_view.copy()
