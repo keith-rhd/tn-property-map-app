@@ -126,9 +126,6 @@ def render_contract_calculator(
 ) -> None:
     """Main calculator UI."""
 
-    st.subheader("✅ Should We Contract This?")
-    st.caption("Uses your historical outcomes to flag pricing cliffs for the selected county.")
-
     # County selection is driven by the Acquisitions sidebar.
     county_key = str(st.session_state.get("acq_selected_county", "")).strip().upper()
     if not county_key:
@@ -153,7 +150,12 @@ def render_contract_calculator(
     # Make sure the key columns exist (defensive).
     for d in (sold, cut):
         if "County_clean_up" not in d.columns and "County" in d.columns:
-            d["County_clean_up"] = d["County"].astype(str).str.upper().str.replace(r"\s+COUNTY\b", "", regex=True)
+            d["County_clean_up"] = (
+                d["County"]
+                .astype(str)
+                .str.upper()
+                .str.replace(r"\s+COUNTY\b", "", regex=True)
+            )
 
     # Normalize status labels for this module.
     # In this repo, Status_norm is already normalized to 'sold' / 'cut loose'.
@@ -171,7 +173,6 @@ def render_contract_calculator(
     cut["status_norm"] = cut_status.replace({"cut": "cut loose"})
 
     # Effective contract price is already computed by data.normalize_inputs.
-    # We'll use it directly.
     price_col = "Effective_Contract_Price" if "Effective_Contract_Price" in sold.columns else None
     if price_col is None:
         st.error("Missing Effective_Contract_Price in dataset. (Check data.normalize_inputs.)")
@@ -188,15 +189,11 @@ def render_contract_calculator(
 
     cdf = df_all[df_all["County_clean_up"].astype(str).str.strip().str.upper() == county_key].copy()
 
-    county_title = county_key.title()
-    st.write(f"**County:** {county_title}")
-
+    # County counts + auto params
     total_n = len(cdf)
     sold_n = int(cdf["is_sold"].sum())
     cut_n = int(cdf["is_cut"].sum())
     conf = _confidence_label(total_n)
-
-    # Auto params
     step, tail_min_n, min_bin_n = _auto_params_for_county(total_n)
 
     # Stats
@@ -220,52 +217,69 @@ def render_contract_calculator(
         else:
             rec = "🟡 YELLOW — Caution / Needs justification"
 
-    # Top decision card
-    st.markdown(f"### {rec}")
-    st.write(f"**Input contract price:** {_dollars(input_price)}")
-    st.write(f"**County sample:** {total_n} deals  |  **Sold:** {sold_n}  |  **Cut Loose:** {cut_n}")
-    st.write(f"**Confidence:** {conf}")
-
-    if conf == "🚧 Low":
-        st.warning("Low data volume in this county. Use as guidance only; get buyer alignment to confirm pricing.")
-
-    # Why
-    st.markdown("**Why:**")
+    # Build "Why" bullets
+    reason: list[str] = []
+    county_title = county_key.title()
     if not math.isnan(avg_sold):
-        st.write(f"- Avg SOLD effective price: {_dollars(avg_sold)}")
+        reason.append(f"Avg SOLD effective price: {_dollars(avg_sold)}")
     else:
-        st.write("- Avg SOLD effective price: —")
+        reason.append("Avg SOLD effective price: —")
 
     if line_80 is not None:
         t80 = cdf[cdf["effective_price"] >= line_80]
-        st.write(
-            f"- ~80% cut cliff around: {_dollars(line_80)} "
+        reason.append(
+            f"~80% cut cliff around: {_dollars(line_80)} "
             f"(Deals ≥ line: {len(t80)}, cut rate: {(t80['is_cut'].mean()*100):.0f}%)"
         )
+
     if line_90 is not None:
         t90 = cdf[cdf["effective_price"] >= line_90]
-        st.write(
-            f"- ~90% cut cliff around: {_dollars(line_90)} "
+        reason.append(
+            f"~90% cut cliff around: {_dollars(line_90)} "
             f"(Deals ≥ line: {len(t90)}, cut rate: {(t90['is_cut'].mean()*100):.0f}%)"
         )
 
-    if line_90 is not None and input_price >= line_90:
-        st.error("This is in the **90%+ cut zone** for this county. Strongly avoid unless the deal is exceptional.")
-    elif line_80 is not None and input_price >= line_80:
-        st.warning("This is in the **80% cut zone**. Only sign with clear justification.")
-    else:
-        st.success("This price is *not* in the high-failure zone based on your historical outcomes.")
-
-    st.divider()
-    st.subheader("Cut-Rate by Price Range (context)")
-
+    # Build bins once (for the right-side context table)
     bin_stats = _build_bins(cdf, bin_size=step, min_bin_n=min_bin_n)
-    if bin_stats.empty:
-        st.info("Not enough data to build a context table for this county.")
-        return
 
-    show = bin_stats.copy()
-    show["Price Range"] = show.apply(lambda r: f"{_dollars(r['bin_low'])}–{_dollars(r['bin_high'])}", axis=1)
-    show["Cut Rate"] = (show["cut_rate"] * 100).round(0).astype(int).astype(str) + "%"
-    show = show[["Price Range", "n", "Cut Rate"]].rename(columns={"n": "Deals in bin"})
-    st.dataframe(show, use_container_width=True, hide_index=True)
+    # =========================
+    # Layout: Decision (left) + Context table (right)
+    # =========================
+    left_col, right_col = st.columns([1.2, 1], gap="large")
+
+    with left_col:
+        st.subheader("✅ Should We Contract This?")
+        st.caption("Uses your historical outcomes to flag pricing cliffs for the selected county.")
+
+        st.write(f"**County:** {county_title}")
+
+        st.markdown(f"### {rec}")
+        st.write(f"**Input contract price:** {_dollars(input_price)}")
+        st.write(f"**County sample:** {total_n} deals  |  **Sold:** {sold_n}  |  **Cut Loose:** {cut_n}")
+        st.write(f"**Confidence:** {conf}")
+
+        if conf == "🚧 Low":
+            st.warning("Low data volume in this county. Use as guidance only; get buyer alignment to confirm pricing.")
+
+        st.markdown("**Why:**")
+        for r in reason:
+            st.write(f"- {r}")
+
+        if line_90 is not None and input_price >= line_90:
+            st.error("This is in the **90%+ cut zone** for this county. Strongly avoid unless the deal is exceptional.")
+        elif line_80 is not None and input_price >= line_80:
+            st.warning("This is in the **80% cut zone**. Only sign with clear justification.")
+        else:
+            st.success("This price is *not* in the high-failure zone based on your historical outcomes.")
+
+    with right_col:
+        st.subheader("Cut-Rate by Price Range")
+
+        if bin_stats.empty:
+            st.info("Not enough data to build a context table for this county.")
+        else:
+            show = bin_stats.copy()
+            show["Price Range"] = show.apply(lambda r: f"{_dollars(r['bin_low'])}–{_dollars(r['bin_high'])}", axis=1)
+            show["Cut Rate"] = (show["cut_rate"] * 100).round(0).astype(int).astype(str) + "%"
+            show = show[["Price Range", "n", "Cut Rate"]].rename(columns={"n": "Deals in bin"})
+            st.dataframe(show, use_container_width=True, hide_index=True)
