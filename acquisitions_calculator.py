@@ -133,7 +133,7 @@ def render_contract_calculator(
         return
 
     # Proposed contract price input (simple).
-    price_col, _ = st.columns([0.35, 0.65])
+    price_col, _ = st.columns([0.3, 0.7])
 
     with price_col:
         input_price = float(
