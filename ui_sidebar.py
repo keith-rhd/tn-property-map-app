@@ -22,12 +22,11 @@ def render_county_quick_search(
     key_to_title = {c.upper(): c.title() for c in options}
     title_to_key = {c.title(): c.upper() for c in options}
 
-   # If the map was the last input, keep the dropdown in sync with selected_county.
-   if st.session_state.get("county_source") == "map":
-       sel_key = str(st.session_state.get("selected_county", "")).strip().upper()
-       if sel_key and sel_key in key_to_title:
-           st.session_state[widget_key] = key_to_title[sel_key]
-
+    # If the map was the last input, keep the dropdown in sync with selected_county.
+    if st.session_state.get("county_source") == "map":
+        sel_key = str(st.session_state.get("selected_county", "")).strip().upper()
+        if sel_key and sel_key in key_to_title:
+            st.session_state[widget_key] = key_to_title[sel_key]
 
     default_title = (
         key_to_title.get(str(selected_county_key).strip().upper(), placeholder)
