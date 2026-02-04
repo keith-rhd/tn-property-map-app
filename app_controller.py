@@ -11,6 +11,7 @@ import streamlit as st
 
 from admin import require_sales_manager_auth
 from admin_view import render_admin_tabs
+from acquisitions_view import render_acquisitions_tabs
 from app_sections import (
     compute_buyer_context_from_df,
     render_acquisitions_sidebar,
@@ -257,6 +258,12 @@ def run_app() -> None:
             df_sold_only_for_dashboard=admin_sold_only,
             dashboard_headline=admin_dashboard_headline,
             county_gp_table=admin_county_gp_table,
+            map_kwargs=map_kwargs,
+        )
+    elif team_view == "Acquisitions":
+        render_acquisitions_tabs(
+            df_time_sold_for_view=df_time_sold_for_view,
+            df_time_cut_for_view=df_time_cut_for_view,
             map_kwargs=map_kwargs,
         )
     else:
