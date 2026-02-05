@@ -89,6 +89,18 @@ def run_app() -> None:
     if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_time_sold_for_view.columns:
         df_time_sold_for_view = df_time_sold_for_view[df_time_sold_for_view["Dispo_Rep_clean"] == dispo_rep_choice]
 
+    # Dispo: Acquisition Rep filter applies to BOTH sold + cut
+    if team_view == "Dispo" and acq_rep_active:
+        if "Acquisition_Rep_clean" in df_time_sold_for_view.columns:
+            df_time_sold_for_view = df_time_sold_for_view[
+                df_time_sold_for_view["Acquisition_Rep_clean"] == acq_rep_choice
+            ]
+        if "Acquisition_Rep_clean" in df_time_cut_for_view.columns:
+            df_time_cut_for_view = df_time_cut_for_view[
+                df_time_cut_for_view["Acquisition_Rep_clean"] == acq_rep_choice
+            ]
+
+
     # Admin filters (market, reps)
     if team_view == "Admin":
         df_time_sold_for_view, df_time_cut_for_view = apply_admin_filters(
