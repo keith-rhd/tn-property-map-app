@@ -22,7 +22,7 @@ def init_state() -> None:
         "county_quick_search": placeholder,  # shared dropdown title
 
         # Dispo Rep filter memory
-        "dispo_rep_choice": "All reps",
+        "dispo_rep_choice": "All dispo reps",
         "dispo_acq_rep_choice": "All acquisition reps",
 
         # Admin auth
