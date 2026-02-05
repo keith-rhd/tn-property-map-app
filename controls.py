@@ -22,17 +22,12 @@ class ControlsResult:
     year_choice: object
     buyer_choice: str
     buyer_active: bool
-
-    # Dispo filters
     dispo_rep_choice: str
     rep_active: bool
-    acq_rep_choice: str
-    acq_rep_active: bool
-
     # Admin-only
     market_choice: str
+    acq_rep_choice: str
     dispo_rep_choice_admin: str
-
     # Filtered data bundle
     fd: object
 
@@ -58,14 +53,12 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
 
     Returns the chosen values plus the prepared filtered-data bundle (fd).
     """
+
     df = ensure_year_column(df)
 
-    # Layout:
-    # - Dispo now has 5 controls (adds Acquisition Rep)
-    # - Admin already has 5 controls
-    # - Others keep 4
-    if team_view in ["Admin", "Dispo"]:
-        col1, col2, col3, col4, col5 = st.columns([1.0, 1.35, 1.6, 1.25, 1.35], gap="small")
+    # Layout: Admin has one extra control
+    if team_view == "Admin":
+        col1, col2, col3, col4, col5 = st.columns([1.0, 1.4, 1.4, 1.5, 1.3], gap="small")
     else:
         col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
 
@@ -84,13 +77,11 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
     buyer_choice = "All buyers"
     buyer_active = False
 
-    dispo_rep_choice = "All reps"
     rep_active = False
-
-    acq_rep_choice = "All acquisition reps"
-    acq_rep_active = False
+    dispo_rep_choice = "All reps"
 
     market_choice = "All markets"
+    acq_rep_choice = "All acquisition reps"
     dispo_rep_choice_admin = "All reps"
 
     if team_view == "Dispo":
@@ -106,7 +97,7 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
 
         buyer_active = buyer_choice != "All buyers" and mode in ["Sold", "Both"]
 
-        # Dispo Rep filter (applies to SOLD rows only)
+        # Dispo Rep filter
         with col4:
             rep_values: list[str] = []
             if mode in ["Sold", "Both"] and "Dispo_Rep_clean" in fd.df_time_sold.columns:
@@ -137,36 +128,6 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
 
             rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
 
-        # Acquisition Rep filter (applies to BOTH sold + cut)
-        with col5:
-            acq_values: list[str] = []
-            if "Acquisition_Rep_clean" in fd.df_time_filtered.columns:
-                acq_values = sorted(
-                    [
-                        r
-                        for r in fd.df_time_filtered["Acquisition_Rep_clean"]
-                        .dropna()
-                        .astype(str)
-                        .str.strip()
-                        .unique()
-                        .tolist()
-                        if r
-                    ]
-                )
-
-            acq_options = ["All acquisition reps"] + acq_values
-            saved_acq = st.session_state.get("dispo_acq_rep_choice", "All acquisition reps")
-            idx_acq = acq_options.index(saved_acq) if saved_acq in acq_options else 0
-
-            acq_rep_choice = st.selectbox(
-                "Acquisition rep",
-                acq_options,
-                index=idx_acq,
-                key="dispo_acq_rep_choice",
-            )
-
-            acq_rep_active = (acq_rep_choice != "All acquisition reps")
-
     elif team_view == "Admin":
         with col3:
             markets: list[str] = []
@@ -183,7 +144,6 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
                     [r for r in df["Acquisition_Rep_clean"].dropna().astype(str).str.strip().unique().tolist() if r]
                 )
             acq_rep_choice = st.selectbox("Acquisition Rep", ["All acquisition reps"] + acq_reps, index=0)
-            acq_rep_active = (acq_rep_choice != "All acquisition reps")
 
         with col5:
             dispo_reps: list[str] = []
@@ -207,9 +167,8 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
         buyer_active=buyer_active,
         dispo_rep_choice=dispo_rep_choice,
         rep_active=rep_active,
-        acq_rep_choice=acq_rep_choice,
-        acq_rep_active=acq_rep_active,
         market_choice=market_choice,
+        acq_rep_choice=acq_rep_choice,
         dispo_rep_choice_admin=dispo_rep_choice_admin,
         fd=fd,
     )
