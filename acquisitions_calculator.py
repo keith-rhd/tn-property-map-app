@@ -256,21 +256,32 @@ def render_contract_calculator(
 
         st.markdown(
             f"""
-            <div style="font-size: 16px; font-weight: 600; opacity: 0.85; margin-top: 6px;">
-                County
-            </div>
             <div style="
-                font-size: 30px;
-                font-weight: 900;
-                color: #E53935;
-                margin: 0 0 10px 0;
-                line-height: 1.05;
+                display: flex;
+                align-items: baseline;
+                gap: 10px;
+                margin: 6px 0 12px 0;
             ">
-                {county_title}
+                <span style="
+                    font-size: 16px;
+                    font-weight: 600;
+                    opacity: 0.7;
+                ">
+                    County:
+                </span>
+                <span style="
+                    font-size: 30px;
+                    font-weight: 900;
+                    color: #E53935;
+                    line-height: 1;
+                ">
+                    {county_title}
+                </span>
             </div>
             """,
             unsafe_allow_html=True,
         )
+
 
 
 
