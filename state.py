@@ -23,6 +23,7 @@ def init_state() -> None:
 
         # Dispo Rep filter memory
         "dispo_rep_choice": "All reps",
+        "dispo_acq_rep_choice": "All acquisition reps",
 
         # Admin auth
         "sales_manager_authed": False,
