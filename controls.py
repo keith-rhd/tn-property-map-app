@@ -22,13 +22,17 @@ class ControlsResult:
     year_choice: object
     buyer_choice: str
     buyer_active: bool
+
     dispo_rep_choice: str
     rep_active: bool
-    # Admin-only
+
+    # NEW (Dispo view)
+    dispo_acq_rep_choice: str
+    acq_rep_active: bool
+
     market_choice: str
     acq_rep_choice: str
     dispo_rep_choice_admin: str
-    # Filtered data bundle
     fd: object
 
 
