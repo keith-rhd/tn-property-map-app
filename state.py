@@ -33,5 +33,5 @@ def init_state() -> None:
         st.session_state.setdefault(k, v)
             # Migration: if an existing session still has the old label, upgrade it
     if st.session_state.get("dispo_rep_choice") == "All reps":
-        st.session_state["dispo_rep_choice"] = "All Dispo Reps"
+        st.session_state["dispo_rep_choice"] = "All dispo reps"
 
