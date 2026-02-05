@@ -2,6 +2,7 @@
 import pandas as pd
 import streamlit as st
 
+
 def render_county_quick_search(
     *,
     county_options: list[str],
@@ -15,21 +16,22 @@ def render_county_quick_search(
 
     - Displays Title Case county names (+ placeholder)
     - Returns selected county key in UPPERCASE, or "" if placeholder selected
-    - Keeps dropdown synced to map clicks via st.session_state["selected_county"] when county_source == "map"
+    - Keeps dropdown synced to map clicks, but ONLY once per new click
+      (so manual dropdown selection can override and stick)
     """
     options = county_options or []
     options_title = [placeholder] + [c.title() for c in options]
     key_to_title = {c.upper(): c.title() for c in options}
     title_to_key = {c.title(): c.upper() for c in options}
 
-   # If the map was the last input, sync dropdown ONLY when there's a new map click.
-   if st.session_state.get("county_source") == "map":
-       last_clicked = str(st.session_state.get("last_map_clicked_county", "")).strip().upper()
-       last_synced = str(st.session_state.get("last_map_synced_county", "")).strip().upper()
-   
-       if last_clicked and last_clicked != last_synced and last_clicked in key_to_title:
-           st.session_state[widget_key] = key_to_title[last_clicked]
-           st.session_state["last_map_synced_county"] = last_clicked
+    # ✅ Sync dropdown to map click ONLY when a NEW map click happened
+    if st.session_state.get("county_source") == "map":
+        last_clicked = str(st.session_state.get("last_map_clicked_county", "")).strip().upper()
+        last_synced = str(st.session_state.get("last_map_synced_county", "")).strip().upper()
+
+        if last_clicked and last_clicked != last_synced and last_clicked in key_to_title:
+            st.session_state[widget_key] = key_to_title[last_clicked]
+            st.session_state["last_map_synced_county"] = last_clicked
 
     default_title = (
         key_to_title.get(str(selected_county_key).strip().upper(), placeholder)
@@ -65,7 +67,7 @@ def render_team_view_toggle(default: str = "Dispo") -> str:
     team_view = st.sidebar.radio(
         "Choose a view",
         options,
-        key="team_view",                 # ✅ this makes the widget the source of truth
+        key="team_view",  # ✅ widget is source of truth
         label_visibility="collapsed",
     )
     return team_view
@@ -176,6 +178,7 @@ def render_acquisitions_guidance(
 
     return chosen_key
 
+
 def render_rankings(
     df_rank,
     *,
@@ -194,7 +197,6 @@ def render_rankings(
         {"Total GP ($)": "Total GP", "Avg GP ($)": "Avg GP"}
     """
     import pandas as pd
-    import streamlit as st
 
     if df_rank is None or df_rank.empty:
         st.sidebar.info("No ranking data available for current filters.")
@@ -236,6 +238,7 @@ def render_rankings(
     hide_cols = set()
     if sort_by_map:
         hide_cols.update(sort_by_map.values())
-    
+
     show_cols = [c for c in df_sorted.columns if c not in hide_cols]
     st.sidebar.dataframe(df_sorted[show_cols], use_container_width=True, hide_index=True)
+
