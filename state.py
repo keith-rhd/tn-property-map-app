@@ -1,13 +1,4 @@
-"""state.py
-
-Single place for Streamlit session_state defaults.
-
-Keeping this separate prevents `app.py` from growing again and reduces
-"mystery keys" sprinkled around the codebase.
-"""
-
-from __future__ import annotations
-
+# state.py
 import streamlit as st
 
 
@@ -20,12 +11,12 @@ def init_state() -> None:
         # View selection
         "team_view": "Dispo",  # Dispo | Acquisitions | Admin
 
-
         # County selection
         "selected_county": "",
         "acq_selected_county": "",
         "county_source": "",  # map | dropdown | ""
         "last_map_clicked_county": "",
+        # NEW: prevents dropdown from constantly being forced back to last map county
         "last_map_synced_county": "",
 
         "county_quick_search": placeholder,  # shared dropdown title
