@@ -26,6 +26,7 @@ def init_state() -> None:
         "acq_selected_county": "",
         "county_source": "",  # map | dropdown | ""
         "last_map_clicked_county": "",
+        "last_map_synced_county": "",
 
         "county_quick_search": placeholder,  # shared dropdown title
 
