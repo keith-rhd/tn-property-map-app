@@ -60,7 +60,7 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
         if team_view in ["Admin", "Dispo"]:
             col1, col2, col3, col4, col5 = st.columns([1.0, 1.4, 1.4, 1.5, 1.3], gap="small")
         else:
-            col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
+            col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small") 
     
         with col1:
             mode = st.radio("View", ["Sold", "Cut Loose", "Both"], index=0, horizontal=True)
