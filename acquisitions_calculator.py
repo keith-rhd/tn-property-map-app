@@ -8,8 +8,11 @@ Design goals:
     Effective_Contract_Price = Amended if present else Contract
 - Uses tail cut-rate thresholds to detect high-end cliffs (Davidson-style)
 
-This module is intentionally self-contained so it can be dropped into the
-existing map app without changing the data pipeline.
+Key corrections:
+- County-specific SOLD ceiling: highest successfully SOLD effective price in that county.
+  Anything above that is auto-RED for that county.
+- Tail cut-rate at the input price is computed directly (no step artifacts),
+  preventing "higher price becomes safer" glitches.
 """
 
 from __future__ import annotations
@@ -94,7 +97,7 @@ def _find_tail_threshold(
     tail_min_n: int,
     step: int,
 ) -> float | None:
-    """Tail threshold: lowest P with cut_rate(deals >= P) >= target_cut_rate."""
+    """Tail threshold: lowest P (grid) where cut_rate(deals >= P) >= target_cut_rate."""
     d = df_county.copy()
     d["effective_price"] = pd.to_numeric(d["effective_price"], errors="coerce")
     d = d.dropna(subset=["effective_price", "is_cut"])
@@ -119,6 +122,29 @@ def _find_tail_threshold(
     return None
 
 
+def _tail_cut_rate_at_price(
+    df_county: pd.DataFrame,
+    price: float,
+    tail_min_n: int,
+) -> tuple[float | None, int]:
+    """
+    Returns (cut_rate, n) for deals with effective_price >= price.
+    If n < tail_min_n, returns (None, n).
+    """
+    d = df_county.copy()
+    d["effective_price"] = pd.to_numeric(d["effective_price"], errors="coerce")
+    d = d.dropna(subset=["effective_price", "is_cut"])
+    if d.empty:
+        return (None, 0)
+
+    tail = d[d["effective_price"] >= float(price)]
+    n = int(len(tail))
+    if n < int(tail_min_n):
+        return (None, n)
+
+    return (float(tail["is_cut"].mean()), n)
+
+
 def render_contract_calculator(
     *,
     df_time_sold_for_view: pd.DataFrame,
@@ -126,15 +152,12 @@ def render_contract_calculator(
 ) -> None:
     """Main calculator UI."""
 
-    # County selection is driven by the Acquisitions sidebar.
     county_key = str(st.session_state.get("acq_selected_county", "")).strip().upper()
     if not county_key:
         st.info("Select a county in the left sidebar (MAO guidance) to use the calculator.")
         return
 
-    # Proposed contract price input (simple).
     price_col, _ = st.columns([0.3, 1.5])
-
     with price_col:
         input_price = float(
             st.number_input(
@@ -146,22 +169,17 @@ def render_contract_calculator(
             )
         )
 
-    # Build county dataset (sold + cut) with a single effective_price column.
     sold = df_time_sold_for_view.copy()
     cut = df_time_cut_for_view.copy()
 
-    # Make sure the key columns exist (defensive).
+    # Defensive county cleanup if needed
     for d in (sold, cut):
         if "County_clean_up" not in d.columns and "County" in d.columns:
             d["County_clean_up"] = (
-                d["County"]
-                .astype(str)
-                .str.upper()
-                .str.replace(r"\s+COUNTY\b", "", regex=True)
+                d["County"].astype(str).str.upper().str.replace(r"\s+COUNTY\b", "", regex=True)
             )
 
-    # Normalize status labels for this module.
-    # In this repo, Status_norm is already normalized to 'sold' / 'cut loose'.
+    # Normalize status labels for this module
     if "Status_norm" in sold.columns:
         sold_status = sold["Status_norm"].astype(str).str.lower()
     else:
@@ -175,14 +193,14 @@ def render_contract_calculator(
     sold["status_norm"] = sold_status.replace({"cut": "cut loose"})
     cut["status_norm"] = cut_status.replace({"cut": "cut loose"})
 
-    # Effective contract price is already computed by data.normalize_inputs.
-    price_col = "Effective_Contract_Price" if "Effective_Contract_Price" in sold.columns else None
-    if price_col is None:
+    # Effective price
+    price_col_name = "Effective_Contract_Price" if "Effective_Contract_Price" in sold.columns else None
+    if price_col_name is None:
         st.error("Missing Effective_Contract_Price in dataset. (Check data.normalize_inputs.)")
         return
 
-    sold["effective_price"] = pd.to_numeric(sold[price_col], errors="coerce")
-    cut["effective_price"] = pd.to_numeric(cut[price_col], errors="coerce")
+    sold["effective_price"] = pd.to_numeric(sold[price_col_name], errors="coerce")
+    cut["effective_price"] = pd.to_numeric(cut[price_col_name], errors="coerce")
 
     df_all = pd.concat([sold, cut], ignore_index=True)
     df_all = df_all.dropna(subset=["effective_price"])
@@ -192,41 +210,84 @@ def render_contract_calculator(
 
     cdf = df_all[df_all["County_clean_up"].astype(str).str.strip().str.upper() == county_key].copy()
 
-    # County counts + auto params
     total_n = len(cdf)
-    sold_n = int(cdf["is_sold"].sum())
-    cut_n = int(cdf["is_cut"].sum())
+    sold_n = int(cdf["is_sold"].sum()) if total_n else 0
+    cut_n = int(cdf["is_cut"].sum()) if total_n else 0
     conf = _confidence_label(total_n)
+
     step, tail_min_n, min_bin_n = _auto_params_for_county(total_n)
 
-    # Stats
-    avg_sold = cdf.loc[cdf["is_sold"] == 1, "effective_price"].mean()
+    avg_sold = cdf.loc[cdf["is_sold"] == 1, "effective_price"].mean() if total_n else float("nan")
 
-    # Thresholds (tail based)
-    line_80 = _find_tail_threshold(cdf, 0.80, tail_min_n=tail_min_n, step=step)
-    line_90 = _find_tail_threshold(cdf, 0.90, tail_min_n=tail_min_n, step=step)
+    # County SOLD ceiling (THIS is the rule you want)
+    county_max_sold = cdf.loc[cdf["is_sold"] == 1, "effective_price"].max()
+    has_county_sold_ceiling = pd.notna(county_max_sold)
 
-    # Recommendation
-    if line_90 is not None and input_price >= line_90:
+    # Tail cut rates
+    tail_cut_at_input, tail_n_at_input = _tail_cut_rate_at_price(cdf, input_price, tail_min_n=tail_min_n)
+
+    # Cliff lines for explanation (grid-based, but only explanatory)
+    line_80 = _find_tail_threshold(cdf, 0.80, tail_min_n=tail_min_n, step=step) if total_n else None
+    line_90 = _find_tail_threshold(cdf, 0.90, tail_min_n=tail_min_n, step=step) if total_n else None
+
+    # Context table
+    bin_stats = _build_bins(cdf, bin_size=step, min_bin_n=min_bin_n)
+
+    # =========================
+    # Recommendation (county SOLD ceiling + monotonic tail at input)
+    # =========================
+    rec_reason_tag = ""
+
+    # 1) County SOLD ceiling rule (hard)
+    if has_county_sold_ceiling and input_price > float(county_max_sold):
+        rec = "🔴 RED — Above county sold ceiling"
+        rec_reason_tag = "county_sold_ceiling"
+
+    # 2) Tail-at-input rule (hard red at 90%)
+    elif tail_cut_at_input is not None and tail_cut_at_input >= 0.90:
         rec = "🔴 RED — Likely Cut Loose"
-    elif line_80 is not None and input_price >= line_80:
+        rec_reason_tag = "tail_input_90"
+
+    # 3) Tail-at-input rule (yellow at 80%)
+    elif tail_cut_at_input is not None and tail_cut_at_input >= 0.80:
         rec = "🟡 YELLOW — Caution / Needs justification"
+        rec_reason_tag = "tail_input_80"
+
     else:
-        # fallback only when we can't compute cliffs
+        # fallback when tails are unreliable or low n
         if not math.isnan(avg_sold) and input_price <= avg_sold * 1.10:
             rec = "🟢 GREEN — Contractable"
+            rec_reason_tag = "fallback_green"
         elif not math.isnan(avg_sold) and input_price >= avg_sold * 1.35:
             rec = "🔴 RED — Likely Cut Loose"
+            rec_reason_tag = "fallback_red"
         else:
             rec = "🟡 YELLOW — Caution / Needs justification"
+            rec_reason_tag = "fallback_yellow"
 
-    # Build "Why" bullets
-    reason: list[str] = []
+    # =========================
+    # Why bullets
+    # =========================
     county_title = county_key.title()
+    reason: list[str] = []
+
+    if has_county_sold_ceiling:
+        reason.append(f"County SOLD ceiling (max sold effective price): {_dollars(county_max_sold)}")
+    else:
+        reason.append("County SOLD ceiling: — (no sold deals in this county)")
+
     if not math.isnan(avg_sold):
         reason.append(f"Avg SOLD effective price: {_dollars(avg_sold)}")
     else:
         reason.append("Avg SOLD effective price: —")
+
+    if tail_cut_at_input is not None:
+        reason.append(
+            f"Tail cut rate at {_dollars(input_price)}: {(tail_cut_at_input * 100):.0f}% "
+            f"(Deals ≥ price: {tail_n_at_input})"
+        )
+    else:
+        reason.append(f"Tail cut rate at {_dollars(input_price)}: — (Deals ≥ price: {tail_n_at_input})")
 
     if line_80 is not None:
         t80 = cdf[cdf["effective_price"] >= line_80]
@@ -242,11 +303,8 @@ def render_contract_calculator(
             f"(Deals ≥ line: {len(t90)}, cut rate: {(t90['is_cut'].mean()*100):.0f}%)"
         )
 
-    # Build bins once (for the right-side context table)
-    bin_stats = _build_bins(cdf, bin_size=step, min_bin_n=min_bin_n)
-
     # =========================
-    # Layout: Decision (left) + Context table (right)
+    # Layout
     # =========================
     left_col, right_col = st.columns([1.2, 1], gap="large")
 
@@ -254,7 +312,34 @@ def render_contract_calculator(
         st.subheader("✅ Should We Contract This?")
         st.caption("Uses your historical outcomes to flag pricing cliffs for the selected county.")
 
-        st.write(f"**County:** {county_title}")
+        # Big red county name (same line)
+        st.markdown(
+            f"""
+            <div style="
+                display: flex;
+                align-items: baseline;
+                gap: 10px;
+                margin: 6px 0 12px 0;
+            ">
+                <span style="
+                    font-size: 16px;
+                    font-weight: 600;
+                    opacity: 0.7;
+                ">
+                    County:
+                </span>
+                <span style="
+                    font-size: 30px;
+                    font-weight: 900;
+                    color: #E53935;
+                    line-height: 1;
+                ">
+                    {county_title}
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
         st.markdown(f"### {rec}")
         st.write(f"**Input contract price:** {_dollars(input_price)}")
@@ -268,16 +353,18 @@ def render_contract_calculator(
         for r in reason:
             st.write(f"- {r}")
 
-        if line_90 is not None and input_price >= line_90:
-            st.error("This is in the **90%+ cut zone** for this county. Strongly avoid unless the deal is exceptional.")
-        elif line_80 is not None and input_price >= line_80:
-            st.warning("This is in the **80% cut zone**. Only sign with clear justification.")
+        # Callout aligned with the new rules
+        if rec_reason_tag == "county_sold_ceiling":
+            st.error("Above the **highest price we’ve ever successfully SOLD** in this county.")
+        elif rec_reason_tag == "tail_input_90":
+            st.error("This is in the **90%+ tail failure zone** at this price and above.")
+        elif rec_reason_tag == "tail_input_80":
+            st.warning("This is in the **80% tail failure zone** at this price and above.")
         else:
             st.success("This price is *not* in the high-failure zone based on your historical outcomes.")
 
     with right_col:
         st.subheader("Cut-Rate by Price Range")
-
         if bin_stats.empty:
             st.info("Not enough data to build a context table for this county.")
         else:
