@@ -22,13 +22,17 @@ class ControlsResult:
     year_choice: object
     buyer_choice: str
     buyer_active: bool
+
     dispo_rep_choice: str
     rep_active: bool
-    # Admin-only
+
+    # NEW (Dispo view)
+    dispo_acq_rep_choice: str
+    acq_rep_active: bool
+
     market_choice: str
     acq_rep_choice: str
     dispo_rep_choice_admin: str
-    # Filtered data bundle
     fd: object
 
 
@@ -56,8 +60,8 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
 
     df = ensure_year_column(df)
 
-    # Layout: Admin has one extra control
-    if team_view == "Admin":
+        # Layout: Admin + Dispo have one extra control row slot
+    if team_view in ["Admin", "Dispo"]:
         col1, col2, col3, col4, col5 = st.columns([1.0, 1.4, 1.4, 1.5, 1.3], gap="small")
     else:
         col1, col2, col3, col4 = st.columns([1.1, 1.6, 1.7, 1.4], gap="small")
@@ -79,6 +83,10 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
 
     rep_active = False
     dispo_rep_choice = "All reps"
+
+    # NEW: Dispo acquisition rep filter defaults
+    acq_rep_active = False
+    dispo_acq_rep_choice = "All acquisition reps"
 
     market_choice = "All markets"
     acq_rep_choice = "All acquisition reps"
@@ -128,6 +136,37 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
 
             rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
 
+        # NEW: Acquisition Rep filter (applies to sold + cut; doesn't depend on mode)
+        with col5:
+            acq_values: list[str] = []
+            # Use the time-filtered frame (sold+cut together) so options reflect the current year filter
+            if "Acquisition_Rep_clean" in fd.df_time_filtered.columns:
+                acq_values = sorted(
+                    [
+                        r
+                        for r in fd.df_time_filtered["Acquisition_Rep_clean"]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .unique()
+                        .tolist()
+                        if r
+                    ]
+                )
+
+            acq_options = ["All acquisition reps"] + acq_values
+            saved_acq = st.session_state.get("dispo_acq_rep_choice", "All acquisition reps")
+            idx_acq = acq_options.index(saved_acq) if saved_acq in acq_options else 0
+
+            dispo_acq_rep_choice = st.selectbox(
+                "Acquisition rep",
+                acq_options,
+                index=idx_acq,
+                key="dispo_acq_rep_choice",
+            )
+
+            acq_rep_active = dispo_acq_rep_choice != "All acquisition reps"
+
     elif team_view == "Admin":
         with col3:
             markets: list[str] = []
@@ -167,6 +206,11 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
         buyer_active=buyer_active,
         dispo_rep_choice=dispo_rep_choice,
         rep_active=rep_active,
+
+        # NEW: Dispo acquisition rep filter return values
+        dispo_acq_rep_choice=dispo_acq_rep_choice,
+        acq_rep_active=acq_rep_active,
+
         market_choice=market_choice,
         acq_rep_choice=acq_rep_choice,
         dispo_rep_choice_admin=dispo_rep_choice_admin,
