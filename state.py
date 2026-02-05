@@ -1,4 +1,13 @@
-# state.py
+"""state.py
+
+Single place for Streamlit session_state defaults.
+
+Keeping this separate prevents `app.py` from growing again and reduces
+"mystery keys" sprinkled around the codebase.
+"""
+
+from __future__ import annotations
+
 import streamlit as st
 
 
@@ -16,13 +25,11 @@ def init_state() -> None:
         "acq_selected_county": "",
         "county_source": "",  # map | dropdown | ""
         "last_map_clicked_county": "",
-        # NEW: prevents dropdown from constantly being forced back to last map county
-        "last_map_synced_county": "",
-
         "county_quick_search": placeholder,  # shared dropdown title
 
-        # Dispo Rep filter memory
+        # Dispo filters memory
         "dispo_rep_choice": "All reps",
+        "dispo_acq_rep_choice": "All acquisition reps",
 
         # Admin auth
         "sales_manager_authed": False,
