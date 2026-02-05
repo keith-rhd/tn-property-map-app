@@ -254,7 +254,21 @@ def render_contract_calculator(
         st.subheader("✅ Should We Contract This?")
         st.caption("Uses your historical outcomes to flag pricing cliffs for the selected county.")
 
-        st.write(f"**County:** {county_title}")
+        st.markdown(
+            f"""
+            <div style="
+                font-size: 28px;
+                font-weight: 800;
+                color: #E53935;
+                margin: 6px 0 10px 0;
+                line-height: 1.1;
+            ">
+                County: {county_title}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
 
         st.markdown(f"### {rec}")
         st.write(f"**Input contract price:** {_dollars(input_price)}")
