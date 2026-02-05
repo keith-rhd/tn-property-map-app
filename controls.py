@@ -82,7 +82,7 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
     buyer_active = False
 
     rep_active = False
-    dispo_rep_choice = "All reps"
+    dispo_rep_choice = "All Dispo Reps"
 
     # NEW: Dispo acquisition rep filter defaults
     acq_rep_active = False
@@ -90,7 +90,7 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
 
     market_choice = "All markets"
     acq_rep_choice = "All acquisition reps"
-    dispo_rep_choice_admin = "All reps"
+    dispo_rep_choice_admin = "All Dispo Reps"
 
     if team_view == "Dispo":
         # Buyer filter
@@ -122,8 +122,8 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
                     ]
                 )
 
-            options = ["All reps"] + rep_values
-            saved = st.session_state.get("dispo_rep_choice", "All reps")
+            options = ["All Dispo Reps"] + rep_values
+            saved = st.session_state.get("dispo_rep_choice", "All Dispo Reps")
             idx = options.index(saved) if saved in options else 0
 
             dispo_rep_choice = st.selectbox(
@@ -134,7 +134,7 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
                 key="dispo_rep_choice",
             )
 
-            rep_active = (dispo_rep_choice != "All reps") and (mode in ["Sold", "Both"])
+            rep_active = (dispo_rep_choice != "All Dispo Reps") and (mode in ["Sold", "Both"])
 
         # NEW: Acquisition Rep filter (applies to sold + cut; doesn't depend on mode)
         with col5:
@@ -190,14 +190,14 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
                 dispo_reps = sorted(
                     [r for r in df["Dispo_Rep_clean"].dropna().astype(str).str.strip().unique().tolist() if r]
                 )
-            dispo_rep_choice_admin = st.selectbox("Dispo rep", ["All reps"] + dispo_reps, index=0)
+            dispo_rep_choice_admin = st.selectbox("Dispo rep", ["All Dispo Reps"] + dispo_reps, index=0)
 
     else:
         # Acquisitions: show disabled buyer/rep to keep layout familiar
         with col3:
             st.selectbox("Buyer", ["All buyers"], disabled=True)
         with col4:
-            st.selectbox("Dispo rep", ["All reps"], disabled=True, key="dispo_rep_choice")
+            st.selectbox("Dispo rep", ["All Dispo Reps"], disabled=True, key="dispo_rep_choice")
 
     return ControlsResult(
         mode=mode,
