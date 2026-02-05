@@ -8,10 +8,13 @@ Design goals:
     Effective_Contract_Price = Amended if present else Contract
 - Uses tail cut-rate thresholds to detect high-end cliffs (Davidson-style)
 
-Key behavior:
-- Uses a dynamic global "RED ceiling" based on a rolling window max SOLD price
-  (defaults to last 24 months) + a small cushion.
-  This avoids hard-coded numbers like $500k that will age poorly with inflation.
+Important behaviors:
+- Rolling-window global "RED ceiling" (last N months max SOLD price in-view + cushion)
+- Bin-based high-end overrides to prevent logic glitches:
+    * If the bin containing the input price has >= 90% cut rate (and enough deals), RED
+    * If input is above county max observed and the top bin has >= 80% cut rate, RED
+  These fixes prevent cases like Rutherford where 240–250 is 100% cut, but 248/260
+  might otherwise show yellow due to tail-threshold step artifacts.
 """
 
 from __future__ import annotations
@@ -25,7 +28,11 @@ import streamlit as st
 
 # Rolling-window settings for the global "outside sold range" rule
 GLOBAL_SOLD_WINDOW_MONTHS = 24
-GLOBAL_SOLD_CUSHION_MULT = 1.05  # 5% cushion to avoid borderline flips / single-point weirdness
+GLOBAL_SOLD_CUSHION_MULT = 1.05  # 5% cushion
+
+# Bin-based overrides (high-end sanity checks)
+BIN_RED_CUT_RATE = 0.90          # if the bin containing the input price is >= 90% cut => RED
+TOP_BIN_RED_CUT_RATE = 0.80      # if above county max AND top bin is >= 80% cut => RED
 
 
 def _dollars(x) -> str:
@@ -138,7 +145,6 @@ def _first_existing_col(df: pd.DataFrame, candidates: Iterable[str]) -> str | No
 def _infer_date_column(df: pd.DataFrame) -> str | None:
     """Try to find a usable date column for sold deals. Falls back to None."""
     candidates = [
-        # common close/sold fields
         "Close_Date",
         "Close Date",
         "Closed_Date",
@@ -151,7 +157,6 @@ def _infer_date_column(df: pd.DataFrame) -> str | None:
         "Date Sold",
         "Disposition_Date",
         "Disposition Date",
-        # sometimes people store a generic date
         "Date",
         "Deal_Date",
         "Deal Date",
@@ -170,21 +175,21 @@ def _rolling_global_red_line_from_sold(
 ) -> tuple[float | None, str]:
     """
     Returns (global_red_line, note).
+
     - Uses rolling window max SOLD price (last N months) * cushion
-    - If no date col or no dates parse, fall back to all-time max SOLD * cushion
+    - Anchors window to max SOLD date in the view (stable with year filters)
+    - If no date col / unparseable / no window data, falls back to all-time SOLD max * cushion
     """
     if sold_df is None or sold_df.empty or "effective_price" not in sold_df.columns:
         return None, "No sold data available."
 
-    # choose date column
-    date_col = _infer_date_column(sold_df)
-    sold_prices = pd.to_numeric(sold_df["effective_price"], errors="coerce")
-    sold_prices = sold_prices.dropna()
-    if sold_prices.empty:
+    prices = pd.to_numeric(sold_df["effective_price"], errors="coerce").dropna()
+    if prices.empty:
         return None, "No sold prices available."
 
-    all_time_max = float(sold_prices.max()) * float(cushion_mult)
+    all_time_max = float(prices.max()) * float(cushion_mult)
 
+    date_col = _infer_date_column(sold_df)
     if not date_col:
         return all_time_max, "No sold date column found; using all-time sold max + cushion."
 
@@ -193,19 +198,17 @@ def _rolling_global_red_line_from_sold(
     if valid.sum() == 0:
         return all_time_max, "Sold date column present but unparseable; using all-time sold max + cushion."
 
-    # Use the max sold date as the anchor (more stable than 'today' when viewing older years)
-    max_date = pd.to_datetime(dt[valid].max())
-    cutoff = max_date - pd.DateOffset(months=int(window_months))
+    anchor = pd.to_datetime(dt[valid].max())
+    cutoff = anchor - pd.DateOffset(months=int(window_months))
 
     in_window = sold_df.loc[valid & (dt >= cutoff)].copy()
     in_window_prices = pd.to_numeric(in_window["effective_price"], errors="coerce").dropna()
 
     if in_window_prices.empty:
-        # If window yields nothing (very old dataset slice), fall back
         return all_time_max, f"No sold deals in last {window_months} months of this view; using all-time sold max + cushion."
 
     rolling_max = float(in_window_prices.max()) * float(cushion_mult)
-    return rolling_max, f"Using rolling sold max (last {window_months} months in this view) + {int((cushion_mult-1)*100)}% cushion."
+    return rolling_max, f"Rolling ceiling uses last {window_months} months in-view + {int((cushion_mult - 1) * 100)}% cushion."
 
 
 def render_contract_calculator(
@@ -223,7 +226,6 @@ def render_contract_calculator(
 
     # Proposed contract price input (simple).
     price_col, _ = st.columns([0.3, 1.5])
-
     with price_col:
         input_price = float(
             st.number_input(
@@ -243,7 +245,10 @@ def render_contract_calculator(
     for d in (sold, cut):
         if "County_clean_up" not in d.columns and "County" in d.columns:
             d["County_clean_up"] = (
-                d["County"].astype(str).str.upper().str.replace(r"\s+COUNTY\b", "", regex=True)
+                d["County"]
+                .astype(str)
+                .str.upper()
+                .str.replace(r"\s+COUNTY\b", "", regex=True)
             )
 
     # Normalize status labels for this module.
@@ -269,14 +274,12 @@ def render_contract_calculator(
     sold["effective_price"] = pd.to_numeric(sold[price_col_name], errors="coerce")
     cut["effective_price"] = pd.to_numeric(cut[price_col_name], errors="coerce")
 
-    # Prepare unified frame
     df_all = pd.concat([sold, cut], ignore_index=True)
     df_all = df_all.dropna(subset=["effective_price"])
 
     df_all["is_cut"] = (df_all["status_norm"] == "cut loose").astype(int)
     df_all["is_sold"] = (df_all["status_norm"] == "sold").astype(int)
 
-    # County slice
     cdf = df_all[df_all["County_clean_up"].astype(str).str.strip().str.upper() == county_key].copy()
 
     # County counts + auto params
@@ -293,6 +296,9 @@ def render_contract_calculator(
     line_80 = _find_tail_threshold(cdf, 0.80, tail_min_n=tail_min_n, step=step) if total_n else None
     line_90 = _find_tail_threshold(cdf, 0.90, tail_min_n=tail_min_n, step=step) if total_n else None
 
+    # Build bins early (used both for context table and for overrides)
+    bin_stats = _build_bins(cdf, bin_size=step, min_bin_n=min_bin_n)
+
     # Rolling global sold ceiling
     global_red_line, global_red_note = _rolling_global_red_line_from_sold(
         sold_df=sold.dropna(subset=["effective_price"]).copy(),
@@ -300,34 +306,74 @@ def render_contract_calculator(
         cushion_mult=GLOBAL_SOLD_CUSHION_MULT,
     )
 
-    # County ceiling (helps prevent "red -> yellow" at extreme prices)
+    # County ceiling
     county_max = cdf["effective_price"].max() if total_n else float("nan")
-
-    # Recommendation flags
-    outside_global_sold_range = (global_red_line is not None and input_price > float(global_red_line))
-    in_90_zone = (line_90 is not None and input_price >= float(line_90))
-    in_80_zone = (line_80 is not None and input_price >= float(line_80))
     above_county_observed = (pd.notna(county_max) and input_price > float(county_max))
 
+    # Bin override flags
+    bin_red = False
+    top_bin_cut_rate = None
+    hit_bin_cut_rate = None
+    hit_bin_range = None
+
+    if bin_stats is not None and not bin_stats.empty:
+        # Input bin match (right-closed: (low, high])
+        hit = bin_stats[(input_price > bin_stats["bin_low"]) & (input_price <= bin_stats["bin_high"])]
+        if not hit.empty:
+            row = hit.iloc[0]
+            hit_bin_cut_rate = float(row["cut_rate"])
+            hit_bin_range = (float(row["bin_low"]), float(row["bin_high"]))
+            if int(row["n"]) >= min_bin_n and hit_bin_cut_rate >= BIN_RED_CUT_RATE:
+                bin_red = True
+
+        # Top bin cut rate (already filtered by min_bin_n in _build_bins)
+        top_bin_cut_rate = float(bin_stats.iloc[-1]["cut_rate"])
+
+    # Tail flags
+    in_90_zone = (line_90 is not None and input_price >= float(line_90))
+    in_80_zone = (line_80 is not None and input_price >= float(line_80))
+
+    # Global ceiling flag
+    outside_global_sold_range = (global_red_line is not None and input_price > float(global_red_line))
+
     # =========================
-    # Recommendation (monotonic + rolling-global ceiling)
+    # Recommendation (priority order)
     # =========================
+    rec_reason_tag = ""  # internal tag to drive messaging
+
     if outside_global_sold_range:
         rec = "🔴 RED — Outside recent sold range"
+        rec_reason_tag = "global_ceiling"
+
+    elif bin_red:
+        # Example: Rutherford 240–250 is 100% cut => 248k should be RED
+        rec = "🔴 RED — In a high-failure price band"
+        rec_reason_tag = "bin_red"
+
     elif in_90_zone:
         rec = "🔴 RED — Likely Cut Loose"
+        rec_reason_tag = "tail_90"
+
+    elif above_county_observed and (top_bin_cut_rate is not None) and (top_bin_cut_rate >= TOP_BIN_RED_CUT_RATE):
+        # Example: above county max and the highest observed band already fails hard => keep RED
+        rec = "🔴 RED — Above county range (top band fails)"
+        rec_reason_tag = "above_county_top_band"
+
     elif in_80_zone:
-        if above_county_observed:
-            rec = "🔴 RED — Above county historical range"
-        else:
-            rec = "🟡 YELLOW — Caution / Needs justification"
+        rec = "🟡 YELLOW — Caution / Needs justification"
+        rec_reason_tag = "tail_80"
+
     else:
+        # fallback only when we can't compute cliffs
         if not math.isnan(avg_sold) and input_price <= avg_sold * 1.10:
             rec = "🟢 GREEN — Contractable"
+            rec_reason_tag = "fallback_green"
         elif not math.isnan(avg_sold) and input_price >= avg_sold * 1.35:
             rec = "🔴 RED — Likely Cut Loose"
+            rec_reason_tag = "fallback_red"
         else:
             rec = "🟡 YELLOW — Caution / Needs justification"
+            rec_reason_tag = "fallback_yellow"
 
     # Build "Why" bullets
     reason: list[str] = []
@@ -363,8 +409,15 @@ def render_contract_calculator(
             f"(Deals ≥ line: {len(t90)}, cut rate: {(t90['is_cut'].mean()*100):.0f}%)"
         )
 
-    # Build bins once (for the right-side context table)
-    bin_stats = _build_bins(cdf, bin_size=step, min_bin_n=min_bin_n)
+    if hit_bin_cut_rate is not None and hit_bin_range is not None:
+        lo, hi = hit_bin_range
+        reason.append(
+            f"Input falls in bin {_dollars(lo)}–{_dollars(hi)} "
+            f"(cut rate: {(hit_bin_cut_rate * 100):.0f}%)"
+        )
+
+    if top_bin_cut_rate is not None:
+        reason.append(f"Top observed bin cut rate: {(top_bin_cut_rate * 100):.0f}%")
 
     # =========================
     # Layout: Decision (left) + Context table (right)
@@ -375,7 +428,7 @@ def render_contract_calculator(
         st.subheader("✅ Should We Contract This?")
         st.caption("Uses your historical outcomes to flag pricing cliffs for the selected county.")
 
-        # County header (same-line; big red county name)
+        # County header (same line; big red county name)
         st.markdown(
             f"""
             <div style="
@@ -418,17 +471,25 @@ def render_contract_calculator(
         for r in reason:
             st.write(f"- {r}")
 
-        # Bottom callout aligned with the new rules
-        if outside_global_sold_range:
+        # Bottom callout aligned with recommendation reasons
+        if rec_reason_tag == "global_ceiling":
             st.error(
                 "Outside the **recent SOLD range** (rolling window). Strongly avoid unless you have a "
                 "pre-committed buyer at this price."
             )
-        elif in_90_zone:
-            st.error("This is in the **90%+ cut zone** for this county. Strongly avoid unless the deal is exceptional.")
-        elif in_80_zone and above_county_observed:
-            st.error("Above anything historically seen in this county **and** already in the high-failure zone.")
-        elif in_80_zone:
+        elif rec_reason_tag == "bin_red":
+            st.error(
+                "This specific **price band historically fails** (very high cut rate). Strongly avoid unless exceptional."
+            )
+        elif rec_reason_tag == "tail_90":
+            st.error(
+                "This is in the **90%+ cut zone** for this county. Strongly avoid unless the deal is exceptional."
+            )
+        elif rec_reason_tag == "above_county_top_band":
+            st.error(
+                "Above anything historically seen in this county, and the **highest observed price band already fails hard**."
+            )
+        elif rec_reason_tag == "tail_80":
             st.warning("This is in the **80% cut zone**. Only sign with clear justification.")
         else:
             st.success("This price is *not* in the high-failure zone based on your historical outcomes.")
@@ -436,7 +497,7 @@ def render_contract_calculator(
     with right_col:
         st.subheader("Cut-Rate by Price Range")
 
-        if bin_stats.empty:
+        if bin_stats is None or bin_stats.empty:
             st.info("Not enough data to build a context table for this county.")
         else:
             show = bin_stats.copy()
