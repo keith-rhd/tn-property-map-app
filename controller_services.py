@@ -45,7 +45,7 @@ def apply_admin_filters(
     df_sold_f = df_sold
     df_cut_f = df_cut
 
-    if dispo_rep_choice_admin not in ("All reps", "All Dispo Reps") and "Dispo_Rep_clean" in df_sold_f.columns:
+    if dispo_rep_choice_admin not in ("All reps", "All dispo reps") and "Dispo_Rep_clean" in df_sold_f.columns:
         df_sold_f = df_sold_f[df_sold_f["Dispo_Rep_clean"] == dispo_rep_choice_admin]
         if "Dispo_Rep_clean" in df_cut_f.columns:
             df_cut_f = df_cut_f[df_cut_f["Dispo_Rep_clean"] == dispo_rep_choice_admin]
