@@ -270,38 +270,53 @@ def render_contract_calculator(
     # =========================
     county_title = county_key.title()
     reason: list[str] = []
-
+    
     if has_county_sold_ceiling:
-        reason.append(f"County SOLD ceiling (max sold effective price): {_dollars(county_max_sold)}")
-    else:
-        reason.append("County SOLD ceiling: — (no sold deals in this county)")
-
-    if not math.isnan(avg_sold):
-        reason.append(f"Avg SOLD effective price: {_dollars(avg_sold)}")
-    else:
-        reason.append("Avg SOLD effective price: —")
-
-    if tail_cut_at_input is not None:
         reason.append(
-            f"Tail cut rate at {_dollars(input_price)}: {(tail_cut_at_input * 100):.0f}% "
-            f"(Deals ≥ price: {tail_n_at_input})"
+            f"County SOLD ceiling (max sold effective price): {_dollars(county_max_sold)}"
         )
     else:
-        reason.append(f"Tail cut rate at {_dollars(input_price)}: — (Deals ≥ price: {tail_n_at_input})")
-
+        reason.append(
+            "County SOLD ceiling: — (no sold deals in this county)"
+        )
+    
+    if not math.isnan(avg_sold):
+        reason.append(
+            f"Avg SOLD effective price: {_dollars(avg_sold)}"
+        )
+    else:
+        reason.append(
+            "Avg SOLD effective price: —"
+        )
+    
+    if tail_cut_at_input is not None:
+        reason.append(
+            f"At {_dollars(input_price)} and above: "
+            f"about {int(round(tail_cut_at_input * 10))} out of 10 deals got cut loose "
+            f"(based on {tail_n_at_input} deals)"
+        )
+    else:
+        reason.append(
+            f"At {_dollars(input_price)} and above: — "
+            f"(based on {tail_n_at_input} deals)"
+        )
+    
     if line_80 is not None:
         t80 = cdf[cdf["effective_price"] >= line_80]
         reason.append(
-            f"~80% cut cliff around: {_dollars(line_80)} "
-            f"(Deals ≥ line: {len(t80)}, cut rate: {(t80['is_cut'].mean()*100):.0f}%)"
+            f"Around {_dollars(line_80)} and above: "
+            f"about 8 out of 10 deals got cut loose "
+            f"(based on {len(t80)} deals)"
         )
-
+    
     if line_90 is not None:
         t90 = cdf[cdf["effective_price"] >= line_90]
         reason.append(
-            f"~90% cut cliff around: {_dollars(line_90)} "
-            f"(Deals ≥ line: {len(t90)}, cut rate: {(t90['is_cut'].mean()*100):.0f}%)"
+            f"Around {_dollars(line_90)} and above: "
+            f"about 9 out of 10 deals got cut loose "
+            f"(based on {len(t90)} deals)"
         )
+
 
     # =========================
     # Layout
