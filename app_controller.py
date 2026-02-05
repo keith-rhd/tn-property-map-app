@@ -82,6 +82,10 @@ def run_app() -> None:
     dispo_rep_choice = controls.dispo_rep_choice
     rep_active = controls.rep_active
 
+    acq_rep_active = controls.acq_rep_active
+    acq_rep_choice = controls.dispo_acq_rep_choice
+
+
     df_time_sold_for_view = controls.fd.df_time_sold
     df_time_cut_for_view = controls.fd.df_time_cut
 
