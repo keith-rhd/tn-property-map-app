@@ -8,13 +8,10 @@ Design goals:
     Effective_Contract_Price = Amended if present else Contract
 - Uses tail cut-rate thresholds to detect high-end cliffs (Davidson-style)
 
-Important behaviors:
-- Rolling-window global "RED ceiling" (last N months max SOLD price in-view + cushion)
-- Bin-based high-end overrides to prevent logic glitches:
-    * If the bin containing the input price has >= 90% cut rate (and enough deals), RED
-    * If input is above county max observed and the top bin has >= 80% cut rate, RED
-  These fixes prevent cases like Rutherford where 240–250 is 100% cut, but 248/260
-  might otherwise show yellow due to tail-threshold step artifacts.
+Key behaviors:
+- Rolling-window global "RED ceiling" (last N months max SOLD in-view + cushion)
+- High-end override logic uses an UNFILTERED bin table (min_bin_n=1) so sparse top bins
+  still prevent nonsense like "240–250 is 100% cut but 270k shows yellow"
 """
 
 from __future__ import annotations
@@ -31,8 +28,9 @@ GLOBAL_SOLD_WINDOW_MONTHS = 24
 GLOBAL_SOLD_CUSHION_MULT = 1.05  # 5% cushion
 
 # Bin-based overrides (high-end sanity checks)
-BIN_RED_CUT_RATE = 0.90          # if the bin containing the input price is >= 90% cut => RED
-TOP_BIN_RED_CUT_RATE = 0.80      # if above county max AND top bin is >= 80% cut => RED
+BIN_RED_CUT_RATE = 0.90          # if the bin containing input has >= 90% cut => RED (with n guard)
+BIN_RED_MIN_N = 2                # require at least 2 deals in that bin for a bin-based RED
+TOP_BIN_RED_CUT_RATE = 0.80      # if input above county max and top observed bin is >=80% cut => RED
 
 
 def _dollars(x) -> str:
@@ -66,7 +64,7 @@ def _auto_params_for_county(total_n: int) -> tuple[int, int, int]:
 
 
 def _build_bins(df_county: pd.DataFrame, bin_size: int, min_bin_n: int) -> pd.DataFrame:
-    """Context table only (NOT used for decision thresholds)."""
+    """Builds bin stats table. Use min_bin_n=1 for override logic; higher for display cleanliness."""
     prices = pd.to_numeric(df_county["effective_price"], errors="coerce").dropna()
     if prices.empty:
         return pd.DataFrame(columns=["bin_low", "bin_high", "n", "cut_rate"])
@@ -98,7 +96,7 @@ def _build_bins(df_county: pd.DataFrame, bin_size: int, min_bin_n: int) -> pd.Da
     grp["cut_rate"] = pd.to_numeric(grp["cut_rate"], errors="coerce")
     grp = grp.dropna(subset=["bin_low", "bin_high", "cut_rate"])
 
-    grp = grp[grp["n"] >= min_bin_n].copy()
+    grp = grp[grp["n"] >= int(min_bin_n)].copy()
     grp = grp.sort_values(["bin_low"]).reset_index(drop=True)
     return grp[["bin_low", "bin_high", "n", "cut_rate"]]
 
@@ -143,7 +141,6 @@ def _first_existing_col(df: pd.DataFrame, candidates: Iterable[str]) -> str | No
 
 
 def _infer_date_column(df: pd.DataFrame) -> str | None:
-    """Try to find a usable date column for sold deals. Falls back to None."""
     candidates = [
         "Close_Date",
         "Close Date",
@@ -237,7 +234,6 @@ def render_contract_calculator(
             )
         )
 
-    # Build county dataset (sold + cut) with a single effective_price column.
     sold = df_time_sold_for_view.copy()
     cut = df_time_cut_for_view.copy()
 
@@ -292,12 +288,15 @@ def render_contract_calculator(
     # Stats
     avg_sold = cdf.loc[cdf["is_sold"] == 1, "effective_price"].mean() if total_n else float("nan")
 
-    # Thresholds (tail based)
+    # Tail thresholds
     line_80 = _find_tail_threshold(cdf, 0.80, tail_min_n=tail_min_n, step=step) if total_n else None
     line_90 = _find_tail_threshold(cdf, 0.90, tail_min_n=tail_min_n, step=step) if total_n else None
 
-    # Build bins early (used both for context table and for overrides)
-    bin_stats = _build_bins(cdf, bin_size=step, min_bin_n=min_bin_n)
+    # Bin tables:
+    # - display table filtered by min_bin_n
+    # - override table includes sparse bins (min_bin_n=1) to avoid high-end logic glitches
+    bin_stats_display = _build_bins(cdf, bin_size=step, min_bin_n=min_bin_n)
+    bin_stats_override = _build_bins(cdf, bin_size=step, min_bin_n=1)
 
     # Rolling global sold ceiling
     global_red_line, global_red_note = _rolling_global_red_line_from_sold(
@@ -305,48 +304,53 @@ def render_contract_calculator(
         window_months=GLOBAL_SOLD_WINDOW_MONTHS,
         cushion_mult=GLOBAL_SOLD_CUSHION_MULT,
     )
+    outside_global_sold_range = (global_red_line is not None and input_price > float(global_red_line))
 
     # County ceiling
     county_max = cdf["effective_price"].max() if total_n else float("nan")
     above_county_observed = (pd.notna(county_max) and input_price > float(county_max))
 
-    # Bin override flags
+    # ---------- BIN OVERRIDE FLAGS (use override bins, not filtered display bins) ----------
     bin_red = False
+    bin_red_note = None
     top_bin_cut_rate = None
-    hit_bin_cut_rate = None
-    hit_bin_range = None
 
-    if bin_stats is not None and not bin_stats.empty:
-        # Input bin match (right-closed: (low, high])
-        hit = bin_stats[(input_price > bin_stats["bin_low"]) & (input_price <= bin_stats["bin_high"])]
-        if not hit.empty:
-            row = hit.iloc[0]
-            hit_bin_cut_rate = float(row["cut_rate"])
-            hit_bin_range = (float(row["bin_low"]), float(row["bin_high"]))
-            if int(row["n"]) >= min_bin_n and hit_bin_cut_rate >= BIN_RED_CUT_RATE:
-                bin_red = True
+    if bin_stats_override is not None and not bin_stats_override.empty:
+        # If input is above the max observed bin, treat it as "above top bin"
+        max_bin_high = float(bin_stats_override["bin_high"].max())
+        if input_price > max_bin_high:
+            # top observed bin cut rate for the county
+            top_row = bin_stats_override.sort_values("bin_high").iloc[-1]
+            top_bin_cut_rate = float(top_row["cut_rate"])
+        else:
+            # Find the bin containing input_price (right-closed: (low, high])
+            hit = bin_stats_override[(input_price > bin_stats_override["bin_low"]) & (input_price <= bin_stats_override["bin_high"])]
+            if not hit.empty:
+                row = hit.iloc[0]
+                n = int(row["n"])
+                cr = float(row["cut_rate"])
+                if n >= BIN_RED_MIN_N and cr >= BIN_RED_CUT_RATE:
+                    bin_red = True
+                    lo = float(row["bin_low"])
+                    hi = float(row["bin_high"])
+                    bin_red_note = f"Bin {_dollars(lo)}–{_dollars(hi)} has {(cr*100):.0f}% cut rate (n={n})."
 
-        # Top bin cut rate (already filtered by min_bin_n in _build_bins)
-        top_bin_cut_rate = float(bin_stats.iloc[-1]["cut_rate"])
+        # Always compute top bin cut rate too (useful for above-county override)
+        top_row = bin_stats_override.sort_values("bin_high").iloc[-1]
+        top_bin_cut_rate = float(top_row["cut_rate"]) if top_bin_cut_rate is None else top_bin_cut_rate
 
     # Tail flags
     in_90_zone = (line_90 is not None and input_price >= float(line_90))
     in_80_zone = (line_80 is not None and input_price >= float(line_80))
 
-    # Global ceiling flag
-    outside_global_sold_range = (global_red_line is not None and input_price > float(global_red_line))
-
-    # =========================
-    # Recommendation (priority order)
-    # =========================
-    rec_reason_tag = ""  # internal tag to drive messaging
+    # ---------- RECOMMENDATION (priority order) ----------
+    rec_reason_tag = ""
 
     if outside_global_sold_range:
         rec = "🔴 RED — Outside recent sold range"
         rec_reason_tag = "global_ceiling"
 
     elif bin_red:
-        # Example: Rutherford 240–250 is 100% cut => 248k should be RED
         rec = "🔴 RED — In a high-failure price band"
         rec_reason_tag = "bin_red"
 
@@ -355,7 +359,7 @@ def render_contract_calculator(
         rec_reason_tag = "tail_90"
 
     elif above_county_observed and (top_bin_cut_rate is not None) and (top_bin_cut_rate >= TOP_BIN_RED_CUT_RATE):
-        # Example: above county max and the highest observed band already fails hard => keep RED
+        # This is the Rutherford fix: above county max + top observed band fails => RED for all higher prices
         rec = "🔴 RED — Above county range (top band fails)"
         rec_reason_tag = "above_county_top_band"
 
@@ -364,7 +368,6 @@ def render_contract_calculator(
         rec_reason_tag = "tail_80"
 
     else:
-        # fallback only when we can't compute cliffs
         if not math.isnan(avg_sold) and input_price <= avg_sold * 1.10:
             rec = "🟢 GREEN — Contractable"
             rec_reason_tag = "fallback_green"
@@ -375,7 +378,7 @@ def render_contract_calculator(
             rec = "🟡 YELLOW — Caution / Needs justification"
             rec_reason_tag = "fallback_yellow"
 
-    # Build "Why" bullets
+    # ---------- WHY BULLETS ----------
     reason: list[str] = []
     county_title = county_key.title()
 
@@ -395,6 +398,12 @@ def render_contract_calculator(
     else:
         reason.append("County max observed effective price: —")
 
+    if top_bin_cut_rate is not None:
+        reason.append(f"Top observed price band cut rate: {(top_bin_cut_rate * 100):.0f}%")
+
+    if bin_red_note:
+        reason.append(bin_red_note)
+
     if line_80 is not None:
         t80 = cdf[cdf["effective_price"] >= line_80]
         reason.append(
@@ -408,16 +417,6 @@ def render_contract_calculator(
             f"~90% cut cliff around: {_dollars(line_90)} "
             f"(Deals ≥ line: {len(t90)}, cut rate: {(t90['is_cut'].mean()*100):.0f}%)"
         )
-
-    if hit_bin_cut_rate is not None and hit_bin_range is not None:
-        lo, hi = hit_bin_range
-        reason.append(
-            f"Input falls in bin {_dollars(lo)}–{_dollars(hi)} "
-            f"(cut rate: {(hit_bin_cut_rate * 100):.0f}%)"
-        )
-
-    if top_bin_cut_rate is not None:
-        reason.append(f"Top observed bin cut rate: {(top_bin_cut_rate * 100):.0f}%")
 
     # =========================
     # Layout: Decision (left) + Context table (right)
@@ -478,13 +477,9 @@ def render_contract_calculator(
                 "pre-committed buyer at this price."
             )
         elif rec_reason_tag == "bin_red":
-            st.error(
-                "This specific **price band historically fails** (very high cut rate). Strongly avoid unless exceptional."
-            )
+            st.error("This **price band historically fails** (very high cut rate). Strongly avoid unless exceptional.")
         elif rec_reason_tag == "tail_90":
-            st.error(
-                "This is in the **90%+ cut zone** for this county. Strongly avoid unless the deal is exceptional."
-            )
+            st.error("This is in the **90%+ cut zone** for this county. Strongly avoid unless the deal is exceptional.")
         elif rec_reason_tag == "above_county_top_band":
             st.error(
                 "Above anything historically seen in this county, and the **highest observed price band already fails hard**."
@@ -497,10 +492,10 @@ def render_contract_calculator(
     with right_col:
         st.subheader("Cut-Rate by Price Range")
 
-        if bin_stats is None or bin_stats.empty:
+        if bin_stats_display is None or bin_stats_display.empty:
             st.info("Not enough data to build a context table for this county.")
         else:
-            show = bin_stats.copy()
+            show = bin_stats_display.copy()
             show["Price Range"] = show.apply(
                 lambda r: f"{_dollars(r['bin_low'])}–{_dollars(r['bin_high'])}", axis=1
             )
