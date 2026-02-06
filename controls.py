@@ -60,6 +60,29 @@ def render_top_controls(*, team_view: str, df: pd.DataFrame) -> ControlsResult:
 
     df = ensure_year_column(df)
 
+        # Acquisitions: no top filters (keep wiring stable by returning defaults)
+    if team_view == "Acquisitions":
+        year_choice = "All years"
+        fd = prepare_filtered_data(df, year_choice)
+
+        return ControlsResult(
+            mode="Both",
+            year_choice=year_choice,
+            buyer_choice="All buyers",
+            buyer_active=False,
+
+            dispo_rep_choice=st.session_state.get("dispo_rep_choice", "All reps"),
+            rep_active=False,
+
+            dispo_acq_rep_choice=st.session_state.get("dispo_acq_rep_choice", "All acquisition reps"),
+            acq_rep_active=False,
+
+            market_choice="All markets",
+            acq_rep_choice="All acquisition reps",
+            dispo_rep_choice_admin="All reps",
+            fd=fd,
+        )
+
         # Layout: Admin + Dispo have one extra control row slot
     if team_view in ["Admin", "Dispo"]:
         col1, col2, col3, col4, col5 = st.columns([1.0, 1.4, 1.4, 1.5, 1.3], gap="small")
