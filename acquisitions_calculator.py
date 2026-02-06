@@ -158,16 +158,21 @@ def render_contract_calculator(
         return
 
     price_col, _ = st.columns([0.3, 1.5])
+    # Keep the contract price sticky across county changes:
+    # - set a default once
+    # - let the widget (key=...) manage the value after that
+    st.session_state.setdefault("acq_contract_price", 150000)
+    
     with price_col:
         input_price = float(
             st.number_input(
                 "Proposed Contract Price ($)",
                 min_value=0,
-                value=int(st.session_state.get("acq_contract_price", 150000)),
                 step=5000,
                 key="acq_contract_price",
             )
         )
+
 
     sold = df_time_sold_for_view.copy()
     cut = df_time_cut_for_view.copy()
