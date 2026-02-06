@@ -203,11 +203,7 @@ def run_app() -> None:
 
     # Rankings sidebar/table
     if team_view == "Dispo":
-        render_rankings(
-            rank_df[["County", "Health score", "Buyer count"]],
-            default_rank_metric="Health score",
-            rank_options=["Health score", "Buyer count"],
-        )
+        pass  # Dispo: sidebar rankings removed
 
     elif team_view == "Admin":
         if admin_rank_df.empty:
