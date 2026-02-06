@@ -89,9 +89,17 @@ def run_app() -> None:
     df_time_sold_for_view = controls.fd.df_time_sold
     df_time_cut_for_view = controls.fd.df_time_cut
 
-    # Dispo rep filter applies only to SOLD
-    if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_time_sold_for_view.columns:
-        df_time_sold_for_view = df_time_sold_for_view[df_time_sold_for_view["Dispo_Rep_clean"] == dispo_rep_choice]
+    # Dispo rep filter applies to SOLD (and CUT for sidebar totals + rep-specific view)
+    if team_view == "Dispo" and rep_active:
+        if "Dispo_Rep_clean" in df_time_sold_for_view.columns:
+            df_time_sold_for_view = df_time_sold_for_view[
+                df_time_sold_for_view["Dispo_Rep_clean"] == dispo_rep_choice
+            ]
+        if "Dispo_Rep_clean" in df_time_cut_for_view.columns:
+            df_time_cut_for_view = df_time_cut_for_view[
+                df_time_cut_for_view["Dispo_Rep_clean"] == dispo_rep_choice
+            ]
+
 
     # Dispo: Acquisition Rep filter applies to BOTH sold + cut
     if team_view == "Dispo" and acq_rep_active:
@@ -233,7 +241,7 @@ def run_app() -> None:
             )
 
     if team_view == "Dispo":
-        stats = compute_overall_stats(df_time_sold_for_view, controls.fd.df_time_cut)
+        stats = compute_overall_stats(df_time_sold_for_view, df_time_cut_for_view)
         render_overall_stats(
             year_choice=year_choice,
             sold_total=stats["sold_total"],
