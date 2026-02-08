@@ -368,9 +368,19 @@ def render_contract_calculator(
         )
 
     if line_80 is not None:
-        reason.append(f"Around **{_dollars(line_80)}** and above: tail cut-rate reaches ~80%+ (support-based).")
+        tail_80 = support_df[support_df["effective_price"] >= line_80]
+        n80 = len(tail_80)
+        reason.append(
+            f"Around **{_dollars(line_80)}** and above: about **8 out of 10 deals** got cut loose (based on {n80} deals)."
+        )
+    
     if line_90 is not None:
-        reason.append(f"Around **{_dollars(line_90)}** and above: tail cut-rate reaches ~90%+ (support-based).")
+        tail_90 = support_df[support_df["effective_price"] >= line_90]
+        n90 = len(tail_90)
+        reason.append(
+            f"Around **{_dollars(line_90)}** and above: about **9 out of 10 deals** got cut loose (based on {n90} deals)."
+        )
+
 
     # -----------------------------
     # UI (original style)
