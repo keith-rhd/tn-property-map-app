@@ -363,13 +363,13 @@ def render_contract_calculator(
 
         st.markdown(f"### {rec}")
         # Tight callout for Input Contract Price (color matches verdict)
-        if rec_reason_tag in ("above_sold_ceiling", "tail_input_90"):
+        # Tight callout for Input Contract Price (color matches verdict)
+        if rec_reason_tag in ("county_sold_ceiling", "tail_input_90", "fallback_red"):
             _bg, _bd, _tx = "#fdecea", "#f5c2c7", "#b02a37"   # red-ish
-        elif rec_reason_tag == "tail_input_80":
+        elif rec_reason_tag in ("tail_input_80", "fallback_yellow"):
             _bg, _bd, _tx = "#fff4e5", "#ffecb5", "#664d03"   # yellow-ish
         else:
             _bg, _bd, _tx = "#e7f5e8", "#c7e6c7", "#0f5132"   # green-ish
-        
         st.markdown(
             f"""
             <div style="
