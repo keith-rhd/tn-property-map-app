@@ -363,22 +363,30 @@ def render_contract_calculator(
 
         st.markdown(f"### {rec}")
         #st.write(f"**Input contract price:** {_dollars(input_price)}")
+        # Tight callout for Input Contract Price (color matches verdict)
+        if rec_reason_tag in ("above_sold_ceiling", "tail_input_90"):
+            _bg, _bd, _tx = "#fdecea", "#f5c2c7", "#b02a37"   # red-ish
+        elif rec_reason_tag == "tail_input_80":
+            _bg, _bd, _tx = "#fff4e5", "#ffecb5", "#664d03"   # yellow-ish
+        else:
+            _bg, _bd, _tx = "#e7f5e8", "#c7e6c7", "#0f5132"   # green-ish
+        
         st.markdown(
             f"""
             <div style="
-                background-color: #f2f4f7;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                padding: 10px 14px;
-                margin-top: 8px;
-                margin-bottom: 14px;
+                display: inline-block;
+                background: {_bg};
+                border: 1px solid {_bd};
+                color: {_tx};
+                border-radius: 8px;
+                padding: 6px 10px;
+                margin: 6px 0 10px 0;
+                font-size: 14px;
+                line-height: 1.2;
+                white-space: nowrap;
             ">
-                <span style="font-size: 13px; color: #555555;">
-                    Input contract price
-                </span><br>
-                <span style="font-size: 20px; font-weight: 700; color: #111111;">
-                    {_dollars(input_price)}
-                </span>
+                <span style="font-weight: 600;">Input contract price:</span>
+                <span style="font-weight: 800;">{_dollars(input_price)}</span>
             </div>
             """,
             unsafe_allow_html=True,
