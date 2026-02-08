@@ -110,6 +110,7 @@ def render_dispo_county_quick_lookup(
     all_county_options: list[str],
     fd,
     df_time_sold_override: pd.DataFrame | None = None,
+    df_time_cut_override: pd.DataFrame | None = None,
 ) -> None:
     """
     Renders the Dispo county quick search block.
@@ -121,6 +122,7 @@ def render_dispo_county_quick_lookup(
         return
 
     df_time_sold_for_stats = df_time_sold_override if df_time_sold_override is not None else fd.df_time_sold
+    df_time_cut_for_stats = df_time_cut_override if df_time_cut_override is not None else fd.df_time_cut
 
     st.sidebar.markdown("## County stats")
     st.sidebar.caption("County quick search")
@@ -146,7 +148,7 @@ def render_dispo_county_quick_lookup(
     chosen_title = chosen_key.title()
 
     sold_scope = df_time_sold_for_stats[df_time_sold_for_stats["County_clean_up"] == chosen_key]
-    cut_scope = fd.df_time_cut[fd.df_time_cut["County_clean_up"] == chosen_key]
+    cut_scope = df_time_cut_for_stats[df_time_cut_for_stats["County_clean_up"] == chosen_key]
     cstats = compute_overall_stats(sold_scope, cut_scope)
 
     sold_ct = int(cstats["sold_total"])
