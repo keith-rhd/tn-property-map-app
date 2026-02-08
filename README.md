@@ -1,71 +1,85 @@
-🗺️ Tennessee Property Map App
+# RHD Deal Intelligence
 
-A Streamlit-based analytics application for analyzing off-market real estate deals across Tennessee, with a focus on pricing discipline, conversion performance, and county-level profitability.
+A Streamlit analytics app for RHD that turns your deals sheet into an interactive Tennessee county map, performance breakdowns (Sold vs Cut Loose), and an Acquisitions feasibility calculator (“Should we contract this?”) powered by your historical outcomes.
 
-📌 What It Does
+This app has **three team views**:
+- **Dispo**: county activity + outcomes + quick lookups
+- **Acquisitions**: county view + buyer depth + feasibility calculator
+- **Admin**: password-gated financial dashboard (GP metrics) + map
 
-Deal & Market Analysis
-- Visualizes off-market property deals on an interactive county map of Tennessee
-- Breaks down deal volume by Sold vs Cut Loose status
-- Surfaces conversion rates, pricing distributions, and deal outcomes by county
+---
 
-Profitability & Performance Metrics
-- Computes total and average gross profit (GP) by county
-- Ranks counties and buyers based on deal performance
-- Highlights pricing thresholds that correlate with higher close rates
+## What it does
 
-Admin / Sales Manager Insights
-- Gated admin view for advanced analytics
-- County-level GP summaries and rankings
-- Buyer performance context and acquisition guidance
-- Foundation for rep scorecards tied to pricing discipline
+### 1) Interactive Tennessee county map
+- Renders a Folium-based county map using `tn_counties.geojson`
+- Colors + tooltips adapt to the selected team view and filters
+- Click a county to see details in the below-map panel
 
-Data Reliability & Usability
-- Normalizes and validates incoming data on load to prevent missing-column errors
-- Caches data loading for faster app performance
-- Provides fast lookup tools for county-level deal context
+### 2) Dispo view (operations / outcomes)
+- Tracks **Sold vs Cut Loose** counts by county
+- Filters by **year**, **status mode** (Sold / Cut / Both), **buyer**, and **rep**
+  - Dispo Rep filter
+  - Acquisition Rep filter (for Dispo analysis)
+- Includes a county quick lookup tool in the sidebar
 
-Direction & Roadmap
-The app is actively evolving toward:
-- Hard pricing thresholds by county
-- Rep scorecards based on discipline vs outcomes
-- Deeper conversion analysis by price band
-- Mobile-friendly and responsive layouts
+### 3) Acquisitions view (buyers + feasibility)
+- Shows county buyer depth (how many unique buyers have purchased in that county)
+- Includes a dedicated tab:
+  - **RHD Feasibility Calculator** (“Should we contract this?”)
+    - Minimal inputs: county + proposed contract price
+    - Uses historical **Effective Contract Price** (Amended if present, otherwise Contract)
+    - Uses **county-specific sold ceiling** (highest sold effective price in that county)
+    - Uses tail cut-rate behavior to avoid “higher price becomes safer” artifacts
 
-🛠️ How It’s Built
-Tech Stack
+### 4) Admin view (financial dashboard + map)
+- Password-gated via Streamlit Secrets or environment variable
+- Dashboard focuses on **sold-only** performance:
+  - Total GP and Avg GP by county
+  - County GP table and headline metrics
+- Map view also includes GP-based tooltips/overlays where relevant
 
-Python
-- Streamlit for UI and app state
-- Pandas for data manipulation and aggregation
-- Folium for interactive map rendering
-- GeoJSON for Tennessee county boundaries
+---
 
-Architecture Overview
-The app follows a modular, service-oriented structure:
-- app.py
-    Thin entrypoint responsible only for bootstrapping the app and routing control flow.
-- app_controller.py
-    Main orchestration layer that wires together data, services, and views without heavy business logic.
-- data.py
-    Handles data loading, caching, and normalization to ensure consistent schemas across the app.
-- controller_services.py
-    Core business logic and aggregations (deal counts, rankings, GP metrics).
-- map_view.py
-    Isolated rendering logic for the interactive county map and detail panels.
-- filters.py / controls.py / ui_sidebar.py
-    UI components and filtering logic, kept separate from data computation.
-- admin.py / admin_view.py
-    Admin authentication and gated analytics views.
+## Data source
 
-Design Principles
-- Thin controllers, fat services – business logic lives outside UI code
-- Single-source normalization – all schema cleanup happens once at load
-- Cache-first data access – expensive operations are cached where possible
-- Explicit separation of concerns – UI, data, and analytics are isolated
+The app pulls data from a **public Google Sheet** (CSV export):
+- **Main deals tab** (configured via `SHEET_ID` + `DATA_GID`)
+- **“MAO Tiers” tab** (configured via `MAO_TIERS_SHEET_NAME`)
 
-Current Technical Focus
-- Consolidating duplicated metrics into single source-of-truth services
-- Optimizing pandas aggregations for larger datasets
-- Hardening admin authentication and session handling
-- Improving responsiveness and mobile usability
+Configuration lives in `config.py`.
+
+### Required minimum columns
+The app is defensive and will add missing optional columns, but at minimum it expects these core fields to exist in your deals data:
+- `Address`
+- `City`
+- `County`
+- `Salesforce_URL`
+
+### Important normalized fields (created during load)
+`data.normalize_inputs()` generates and standardizes:
+- `County_clean_up`, `County_key`
+- `Status_norm` (sold / cut, normalized)
+- `Date_dt`, `Year`
+- `Buyer_clean`
+- `Dispo_Rep_clean`
+- `Market_clean`
+- `Acquisition_Rep_clean`
+- Numeric financial fields + derived:
+  - `Contract_Price_num`, `Amended_Price_num`, `Wholesale_Price_num`
+  - `Effective_Contract_Price`
+  - `Gross_Profit`
+
+### MAO tiers sheet
+`data.normalize_tiers()` outputs a standardized tiers table:
+- `County_clean_up`, `County_key`
+- `MAO_Tier`
+- `MAO_Range_Str` (built from range or min/max)
+
+---
+
+## Running locally
+
+### 1) Install dependencies
+```bash
+pip install -r requirements.txt
