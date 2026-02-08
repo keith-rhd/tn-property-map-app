@@ -177,6 +177,7 @@ def run_app() -> None:
         all_county_options=all_county_options,
         fd=controls.fd,
         df_time_sold_override=df_time_sold_for_view,
+        df_time_cut_override=df_time_cut_for_view,
     )
 
     top_buyers_dict = build_top_buyers_dict(
