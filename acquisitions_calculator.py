@@ -13,14 +13,25 @@ Key corrections:
   Anything above that is auto-RED for that county.
 - Tail cut-rate at the input price is computed directly (no step artifacts),
   preventing "higher price becomes safer" glitches.
+
+Small-sample upgrade (NEW):
+- If the county has low history (n < MIN_SUPPORT_N), blend with adjacent counties
+  (1-hop, then 2-hop). If still low, fall back to statewide.
+- Always explain in the UI what support scope was used.
 """
 
 from __future__ import annotations
 
 import math
+from collections import deque
 
 import pandas as pd
 import streamlit as st
+
+
+# ===== Small-sample controls =====
+MIN_SUPPORT_N = 15       # minimum deals needed to trust tail cut-rate + bins
+MAX_HOPS = 2             # how far out to expand adjacency before statewide fallback
 
 
 def _dollars(x) -> str:
@@ -41,54 +52,51 @@ def _confidence_label(total_n: int) -> str:
 
 
 def _auto_params_for_county(total_n: int) -> tuple[int, int, int]:
-    """(step, tail_min_n, min_bin_n) based on sample size."""
-    if total_n >= 120:
-        return (5000, 20, 5)
-    if total_n >= 60:
-        return (10000, 15, 4)
-    if total_n >= 30:
-        return (10000, 10, 3)
-    if total_n >= 15:
-        return (15000, 8, 3)
-    return (20000, 6, 2)
+    """(step, tail_min_n, min_bin_n) tuned by sample size."""
+    if total_n >= 40:
+        return (5000, 12, 6)
+    if total_n >= 20:
+        return (5000, 8, 5)
+    if total_n >= 10:
+        return (10000, 6, 4)
+    return (20000, 5, 3)
 
 
 def _build_bins(df_county: pd.DataFrame, bin_size: int, min_bin_n: int) -> pd.DataFrame:
-    """Context table only (NOT used for decision thresholds)."""
-    prices = pd.to_numeric(df_county["effective_price"], errors="coerce").dropna()
-    if prices.empty:
-        return pd.DataFrame(columns=["bin_low", "bin_high", "n", "cut_rate"])
-
-    pmin, pmax = float(prices.min()), float(prices.max())
-    start = int(math.floor(pmin / bin_size) * bin_size)
-    end = int(math.ceil(pmax / bin_size) * bin_size)
-
-    bins = list(range(start, end + bin_size, bin_size))
-    if len(bins) < 3:
-        bins = [start, end + bin_size]
-
+    """Build a price-binned table for context display."""
     d = df_county.copy()
     d["effective_price"] = pd.to_numeric(d["effective_price"], errors="coerce")
-    d = d.dropna(subset=["effective_price"])
-    d["price_bin"] = pd.cut(d["effective_price"], bins=bins, right=True, include_lowest=True)
+    d = d.dropna(subset=["effective_price", "is_cut", "is_sold"])
+    if d.empty:
+        return pd.DataFrame(columns=["Price Band", "n", "Sold", "Cut", "Cut Rate"])
 
-    grp = (
-        d.groupby("price_bin", observed=False)
-        .agg(n=("status_norm", "size"), cut_rate=("is_cut", "mean"))
-        .reset_index()
-    )
+    d["bin"] = (d["effective_price"].astype(float) // float(bin_size)).astype(int) * int(bin_size)
 
-    grp["bin_low"] = grp["price_bin"].apply(lambda x: float(x.left) if pd.notna(x) else float("nan"))
-    grp["bin_high"] = grp["price_bin"].apply(lambda x: float(x.right) if pd.notna(x) else float("nan"))
+    rows = []
+    for b, g in d.groupby("bin"):
+        n = int(len(g))
+        if n < int(min_bin_n):
+            continue
+        sold = int(g["is_sold"].sum())
+        cut = int(g["is_cut"].sum())
+        cut_rate = float(g["is_cut"].mean()) if n else float("nan")
 
-    grp["bin_low"] = pd.to_numeric(grp["bin_low"], errors="coerce")
-    grp["bin_high"] = pd.to_numeric(grp["bin_high"], errors="coerce")
-    grp["cut_rate"] = pd.to_numeric(grp["cut_rate"], errors="coerce")
-    grp = grp.dropna(subset=["bin_low", "bin_high", "cut_rate"])
+        lo = int(b)
+        hi = int(b + bin_size - 1)
+        rows.append(
+            {
+                "Price Band": f"{_dollars(lo)}–{_dollars(hi)}",
+                "n": n,
+                "Sold": sold,
+                "Cut": cut,
+                "Cut Rate": f"{cut_rate:.0%}",
+            }
+        )
 
-    grp = grp[grp["n"] >= min_bin_n].copy()
-    grp = grp.sort_values(["bin_low"]).reset_index(drop=True)
-    return grp[["bin_low", "bin_high", "n", "cut_rate"]]
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return pd.DataFrame(columns=["Price Band", "n", "Sold", "Cut", "Cut Rate"])
+    return out.sort_values("Price Band")
 
 
 def _find_tail_threshold(
@@ -145,24 +153,91 @@ def _tail_cut_rate_at_price(
     return (float(tail["is_cut"].mean()), n)
 
 
+def _neighbors_within_hops(
+    county_key: str,
+    adjacency: dict[str, list[str]],
+    max_hops: int,
+) -> list[str]:
+    """BFS out to max_hops; returns unique counties excluding the start."""
+    start = county_key.strip().upper()
+    if not start or not adjacency:
+        return []
+
+    seen = {start}
+    q: deque[tuple[str, int]] = deque([(start, 0)])
+    out: list[str] = []
+
+    while q:
+        node, depth = q.popleft()
+        if depth >= max_hops:
+            continue
+        for nxt in adjacency.get(node, []):
+            nxt_u = str(nxt).strip().upper()
+            if not nxt_u or nxt_u in seen:
+                continue
+            seen.add(nxt_u)
+            out.append(nxt_u)
+            q.append((nxt_u, depth + 1))
+
+    return out
+
+
+def _build_support_df(
+    df_all: pd.DataFrame,
+    county_key: str,
+    *,
+    adjacency: dict[str, list[str]] | None,
+    min_support_n: int,
+    max_hops: int,
+) -> tuple[pd.DataFrame, str, list[str], bool]:
+    """
+    Returns:
+      (df_support, scope_label, counties_used, used_fallback)
+
+    Scope logic:
+      - If county n >= min_support_n -> COUNTY ONLY
+      - Else try 1-hop neighbors -> NEARBY (1-hop)
+      - Else try 2-hop neighbors -> NEARBY (2-hop)
+      - Else -> STATEWIDE
+    """
+    ck = county_key.strip().upper()
+    d = df_all.copy()
+
+    county_only = d[d["County_clean_up"].astype(str).str.strip().str.upper() == ck].copy()
+    if len(county_only) >= min_support_n:
+        return (county_only, "County only", [ck], False)
+
+    adjacency = adjacency or {}
+
+    # Expand 1-hop then 2-hop
+    for hops in range(1, max_hops + 1):
+        neigh = _neighbors_within_hops(ck, adjacency, max_hops=hops)
+        pool = [ck] + neigh
+        support = d[d["County_clean_up"].astype(str).str.strip().str.upper().isin(pool)].copy()
+        if len(support) >= min_support_n:
+            label = f"Blended nearby counties (≤{hops} hop{'s' if hops > 1 else ''})"
+            return (support, label, pool, True)
+
+    # Still low: statewide fallback
+    return (d, "Statewide fallback", ["ALL TN"], True)
+
+
 def render_contract_calculator(
     *,
     df_time_sold_for_view: pd.DataFrame,
     df_time_cut_for_view: pd.DataFrame,
 ) -> None:
     """Main calculator UI."""
-
     county_key = str(st.session_state.get("acq_selected_county", "")).strip().upper()
     if not county_key:
         st.info("Select a county in the left sidebar (MAO guidance) to use the calculator.")
         return
 
     price_col, _ = st.columns([0.3, 1.5])
-    # Keep the contract price sticky across county changes:
-    # - set a default once
-    # - let the widget (key=...) manage the value after that
+
+    # Keep the contract price sticky across county changes
     st.session_state.setdefault("acq_contract_price", 150000)
-    
+
     with price_col:
         input_price = float(
             st.number_input(
@@ -172,7 +247,6 @@ def render_contract_calculator(
                 key="acq_contract_price",
             )
         )
-
 
     sold = df_time_sold_for_view.copy()
     cut = df_time_cut_for_view.copy()
@@ -213,40 +287,71 @@ def render_contract_calculator(
     df_all["is_cut"] = (df_all["status_norm"] == "cut loose").astype(int)
     df_all["is_sold"] = (df_all["status_norm"] == "sold").astype(int)
 
+    # County-only slice (always compute + show)
     cdf = df_all[df_all["County_clean_up"].astype(str).str.strip().str.upper() == county_key].copy()
-
-    total_n = len(cdf)
+    total_n = int(len(cdf))
     sold_n = int(cdf["is_sold"].sum()) if total_n else 0
     cut_n = int(cdf["is_cut"].sum()) if total_n else 0
-    conf = _confidence_label(total_n)
 
-    step, tail_min_n, min_bin_n = _auto_params_for_county(total_n)
+    # Support data selection (for low-sample stability)
+    adjacency = st.session_state.get("county_adjacency", None)
+    support_df, support_label, support_counties, used_fallback = _build_support_df(
+        df_all,
+        county_key,
+        adjacency=adjacency,
+        min_support_n=MIN_SUPPORT_N,
+        max_hops=MAX_HOPS,
+    )
 
-    avg_sold = cdf.loc[cdf["is_sold"] == 1, "effective_price"].mean() if total_n else float("nan")
+    support_n = int(len(support_df))
+    conf = _confidence_label(support_n)
 
-    # County SOLD ceiling (THIS is the rule you want)
+    step, tail_min_n, min_bin_n = _auto_params_for_county(support_n)
+
+    # County-only avg sold
+    avg_sold_county = (
+        cdf.loc[cdf["is_sold"] == 1, "effective_price"].mean() if total_n else float("nan")
+    )
+
+    # SOLD ceiling:
+    # Prefer county ceiling if it exists; otherwise use support ceiling but clearly label it.
     county_max_sold = cdf.loc[cdf["is_sold"] == 1, "effective_price"].max()
     has_county_sold_ceiling = pd.notna(county_max_sold)
 
-    # Tail cut rates
-    tail_cut_at_input, tail_n_at_input = _tail_cut_rate_at_price(cdf, input_price, tail_min_n=tail_min_n)
+    support_max_sold = support_df.loc[support_df["is_sold"] == 1, "effective_price"].max()
+    has_support_sold_ceiling = pd.notna(support_max_sold)
 
-    # Cliff lines for explanation (grid-based, but only explanatory)
-    line_80 = _find_tail_threshold(cdf, 0.80, tail_min_n=tail_min_n, step=step) if total_n else None
-    line_90 = _find_tail_threshold(cdf, 0.90, tail_min_n=tail_min_n, step=step) if total_n else None
+    ceiling_value = None
+    ceiling_label = None
 
-    # Context table
-    bin_stats = _build_bins(cdf, bin_size=step, min_bin_n=min_bin_n)
+    if has_county_sold_ceiling:
+        ceiling_value = float(county_max_sold)
+        ceiling_label = "County sold ceiling"
+    elif has_support_sold_ceiling:
+        ceiling_value = float(support_max_sold)
+        ceiling_label = f"Support sold ceiling ({support_label.lower()})"
+
+    # Tail cut rates (computed on support_df for stability)
+    tail_cut_at_input, tail_n_at_input = _tail_cut_rate_at_price(
+        support_df, input_price, tail_min_n=tail_min_n
+    )
+
+    # Cliff lines for explanation (grid-based, support_df)
+    line_80 = _find_tail_threshold(support_df, 0.80, tail_min_n=tail_min_n, step=step) if support_n else None
+    line_90 = _find_tail_threshold(support_df, 0.90, tail_min_n=tail_min_n, step=step) if support_n else None
+
+    # Context bins (support_df)
+    bin_stats = _build_bins(support_df, bin_size=step, min_bin_n=min_bin_n)
 
     # =========================
-    # Recommendation (county SOLD ceiling + monotonic tail at input)
+    # Recommendation
     # =========================
     rec_reason_tag = ""
 
-    # 1) County SOLD ceiling rule (hard)
-    if has_county_sold_ceiling and input_price > float(county_max_sold):
-        rec = "🔴 RED — Above county sold ceiling"
-        rec_reason_tag = "county_sold_ceiling"
+    # 1) Sold ceiling rule (hard)
+    if ceiling_value is not None and input_price > float(ceiling_value):
+        rec = f"🔴 RED — Above sold ceiling ({ceiling_label})"
+        rec_reason_tag = "sold_ceiling"
 
     # 2) Tail-at-input rule (hard red at 90%)
     elif tail_cut_at_input is not None and tail_cut_at_input >= 0.90:
@@ -260,10 +365,10 @@ def render_contract_calculator(
 
     else:
         # fallback when tails are unreliable or low n
-        if not math.isnan(avg_sold) and input_price <= avg_sold * 1.10:
+        if not math.isnan(avg_sold_county) and input_price <= avg_sold_county * 1.10:
             rec = "🟢 GREEN — Contractable"
             rec_reason_tag = "fallback_green"
-        elif not math.isnan(avg_sold) and input_price >= avg_sold * 1.35:
+        elif not math.isnan(avg_sold_county) and input_price >= avg_sold_county * 1.35:
             rec = "🔴 RED — Likely Cut Loose"
             rec_reason_tag = "fallback_red"
         else:
@@ -271,154 +376,57 @@ def render_contract_calculator(
             rec_reason_tag = "fallback_yellow"
 
     # =========================
-    # Why bullets
+    # UI
     # =========================
     county_title = county_key.title()
+
+    st.markdown(f"### {county_title} — Feasibility")
+    st.markdown(f"**Recommendation:** {rec}")
+    st.markdown(
+        f"**Confidence:** {conf}  \n"
+        f"County history: **n={total_n}** (Sold {sold_n} / Cut {cut_n})  \n"
+        f"Model support: **n={support_n}** — {support_label}"
+    )
+
+    if used_fallback:
+        # Don’t spam statewide list; show neighbors only
+        if support_label.startswith("Blended"):
+            neigh_list = [c for c in support_counties if c != county_key]
+            if neigh_list:
+                st.caption("Blended counties: " + ", ".join([n.title() for n in neigh_list]))
+        else:
+            st.caption("Using statewide data because the county has too few historical deals under current filters.")
+
+    st.divider()
+
+    # Explanation bullets
     reason: list[str] = []
-    
-    if has_county_sold_ceiling:
-        reason.append(
-            f"County SOLD ceiling (max sold effective price): {_dollars(county_max_sold)}"
-        )
+
+    if ceiling_value is not None:
+        reason.append(f"Sold ceiling used: **{_dollars(ceiling_value)}** ({ceiling_label}).")
     else:
-        reason.append(
-            "County SOLD ceiling: — (no sold deals in this county)"
-        )
-    
-    if not math.isnan(avg_sold):
-        reason.append(
-            f"Avg SOLD effective price: {_dollars(avg_sold)}"
-        )
+        reason.append("No sold ceiling available (no sold deals found in the support dataset).")
+
+    if tail_cut_at_input is None:
+        reason.append(f"Tail cut-rate at {_dollars(input_price)} is unavailable (tail sample too small: n={tail_n_at_input}).")
     else:
-        reason.append(
-            "Avg SOLD effective price: —"
-        )
-    
-    if tail_cut_at_input is not None:
-        reason.append(
-            f"At {_dollars(input_price)} and above: "
-            f"about {int(round(tail_cut_at_input * 10))} out of 10 deals got cut loose "
-            f"(based on {tail_n_at_input} deals)"
-        )
-    else:
-        reason.append(
-            f"At {_dollars(input_price)} and above: — "
-            f"(based on {tail_n_at_input} deals)"
-        )
-    
+        reason.append(f"Tail cut-rate at {_dollars(input_price)}: **{tail_cut_at_input:.0%}** (n={tail_n_at_input}).")
+
     if line_80 is not None:
-        t80 = cdf[cdf["effective_price"] >= line_80]
-        reason.append(
-            f"Around {_dollars(line_80)} and above: "
-            f"about 8 out of 10 deals got cut loose "
-            f"(based on {len(t80)} deals)"
-        )
-    
+        reason.append(f"80% cut cliff starts around **{_dollars(line_80)}** (support-based).")
     if line_90 is not None:
-        t90 = cdf[cdf["effective_price"] >= line_90]
-        reason.append(
-            f"Around {_dollars(line_90)} and above: "
-            f"about 9 out of 10 deals got cut loose "
-            f"(based on {len(t90)} deals)"
-        )
+        reason.append(f"90% cut cliff starts around **{_dollars(line_90)}** (support-based).")
 
+    if not math.isnan(avg_sold_county):
+        reason.append(f"County avg SOLD effective price: **{_dollars(avg_sold_county)}**.")
 
-    # =========================
-    # Layout
-    # =========================
-    left_col, right_col = st.columns([1.2, 1], gap="large")
+    for r in reason:
+        st.write("• " + r)
 
-    with left_col:
-        st.subheader("✅ RHD Feasibility Calculator")
-        st.caption("Uses your historical outcomes to flag pricing cliffs for the selected county.")
+    st.divider()
 
-        # Big red county name (same line)
-        st.markdown(
-            f"""
-            <div style="
-                display: flex;
-                align-items: baseline;
-                gap: 10px;
-                margin: 6px 0 12px 0;
-            ">
-                <span style="
-                    font-size: 16px;
-                    font-weight: 600;
-                    opacity: 0.7;
-                ">
-                    County:
-                </span>
-                <span style="
-                    font-size: 30px;
-                    font-weight: 900;
-                    color: #E53935;
-                    line-height: 1;
-                ">
-                    {county_title}
-                </span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(f"### {rec}")
-        # Tight callout for Input Contract Price (color matches verdict)
-        if rec_reason_tag in ("county_sold_ceiling", "tail_input_90", "fallback_red"):
-            # Match the dark-mode "red verdict" box style
-            _bg, _bd, _tx = "#3B2529", "#4A2D32", "#C96562"
-        elif rec_reason_tag in ("tail_input_80", "fallback_yellow"):
-            # Dark-mode warning style (muted amber)
-            _bg, _bd, _tx = "#3A2F1E", "#54422A", "#D8B56A"
-        else:
-            # Dark-mode success style (muted green)
-            _bg, _bd, _tx = "#233629", "#2F4A36", "#7BC29A"
-        st.markdown(
-            f"""
-            <div style="
-                display: inline-block;
-                background: {_bg};
-                border: 1px solid {_bd};
-                color: {_tx};
-                border-radius: 8px;
-                padding: 6px 10px;
-                margin: 6px 0 10px 0;
-                font-size: 14px;
-                line-height: 1.2;
-                white-space: nowrap;
-            ">
-                <span style="font-weight: 600;">Input contract price:</span>
-                <span style="font-weight: 800;">{_dollars(input_price)}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.write(f"**County sample:** {total_n} deals  |  **Sold:** {sold_n}  |  **Cut Loose:** {cut_n}")
-        st.write(f"**Confidence:** {conf}")
-
-        if conf == "🚧 Low":
-            st.warning("Low data volume in this county. Use as guidance only; get buyer alignment to confirm pricing.")
-
-        st.markdown("**Why:**")
-        for r in reason:
-            st.write(f"- {r}")
-
-        # Callout aligned with the new rules
-        if rec_reason_tag == "county_sold_ceiling":
-            st.error("Above the **highest price we’ve ever successfully SOLD** in this county.")
-        elif rec_reason_tag == "tail_input_90":
-            st.error("This is in the **90%+ tail failure zone** at this price and above.")
-        elif rec_reason_tag == "tail_input_80":
-            st.warning("This is in the **80% tail failure zone** at this price and above.")
-        else:
-            st.success("This price is *not* in the high-failure zone based on your historical outcomes.")
-
-    with right_col:
-        st.subheader("Cut-Rate by Price Range")
-        if bin_stats.empty:
-            st.info("Not enough data to build a context table for this county.")
-        else:
-            show = bin_stats.copy()
-            show["Price Range"] = show.apply(lambda r: f"{_dollars(r['bin_low'])}–{_dollars(r['bin_high'])}", axis=1)
-            show["Cut Rate"] = (show["cut_rate"] * 100).round(0).astype(int).astype(str) + "%"
-            show = show[["Price Range", "n", "Cut Rate"]].rename(columns={"n": "Deals in bin"})
-            st.dataframe(show, use_container_width=True, hide_index=True)
+    st.markdown("#### Historical context (price bands)")
+    if bin_stats.empty:
+        st.info("Not enough historical deals to build stable price bands under current filters.")
+    else:
+        st.dataframe(bin_stats, use_container_width=True)
