@@ -65,6 +65,7 @@ def run_app() -> None:
 
     tn_geo_for_adj = load_tn_geojson()
     adjacency = build_county_adjacency(tn_geo_for_adj)
+    st.session_state["county_adjacency"] = adjacency
 
     all_county_options, mao_tier_by_county, mao_range_by_county = county_options(df, tiers)
 
