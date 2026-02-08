@@ -362,7 +362,6 @@ def render_contract_calculator(
         )
 
         st.markdown(f"### {rec}")
-        #st.write(f"**Input contract price:** {_dollars(input_price)}")
         # Tight callout for Input Contract Price (color matches verdict)
         if rec_reason_tag in ("above_sold_ceiling", "tail_input_90"):
             _bg, _bd, _tx = "#fdecea", "#f5c2c7", "#b02a37"   # red-ish
@@ -391,7 +390,6 @@ def render_contract_calculator(
             """,
             unsafe_allow_html=True,
         )
-################################
         st.write(f"**County sample:** {total_n} deals  |  **Sold:** {sold_n}  |  **Cut Loose:** {cut_n}")
         st.write(f"**Confidence:** {conf}")
 
