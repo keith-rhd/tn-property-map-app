@@ -298,7 +298,7 @@ def render_contract_calculator(
         ceiling_label = "County SOLD ceiling (max sold effective price)"
     elif pd.notna(support_max_sold):
         ceiling_value = float(support_max_sold)
-        ceiling_label = f"Support SOLD ceiling (max sold effective price) — {support_label}"
+        ceiling_label = "Support SOLD ceiling (max sold effective price)"
     else:
         ceiling_value = None
         ceiling_label = None
@@ -348,12 +348,6 @@ def render_contract_calculator(
     # -----------------------------
     reason: list[str] = []
 
-    # Scope explanation (only show when blended/fallback)
-    if used_fallback:
-        reason.append(f"Using **support data**: {support_label} (n={support_n}, Sold {support_sold_n} / Cut {support_cut_n}).")
-    else:
-        reason.append(f"Using **county-only** history (n={support_n}, Sold {support_sold_n} / Cut {support_cut_n}).")
-
     if ceiling_value is not None:
         reason.append(f"{ceiling_label}: **{_dollars(ceiling_value)}**")
     else:
@@ -365,9 +359,13 @@ def render_contract_calculator(
         reason.append(f"County Avg SOLD effective price: **{_dollars(county_avg_sold)}**")
 
     if tail_cut_at_input is None:
-        reason.append(f"Tail cut-rate at {_dollars(input_price)}: —")
+        reason.append(f"At {_dollars(input_price)} and above: —")
     else:
-        reason.append(f"At {_dollars(input_price)} and above: about **{tail_cut_at_input:.0%}** got cut loose (based on {tail_n_at_input} deals).")
+        out_of_10 = int(round(float(tail_cut_at_input) * 10))
+        out_of_10 = max(0, min(10, out_of_10))
+        reason.append(
+            f"At {_dollars(input_price)} and above: about **{out_of_10} out of 10 deals** got cut loose (based on {tail_n_at_input} deals)."
+        )
 
     if line_80 is not None:
         reason.append(f"Around **{_dollars(line_80)}** and above: tail cut-rate reaches ~80%+ (support-based).")
@@ -451,11 +449,14 @@ def render_contract_calculator(
 
         # Add model support line when blended/fallback so users understand the source
         if used_fallback:
-            st.caption(f"Model support: n={support_n} — {support_label} (Sold {support_sold_n} / Cut {support_cut_n})")
             if support_label.startswith("Blended"):
+                st.caption(f"Model support: {support_n} deals pulled from nearby counties.")
                 neigh_list = [c for c in support_counties if c != county_key]
                 if neigh_list:
                     st.caption("Blended counties: " + ", ".join([n.title() for n in neigh_list]))
+            else:
+                st.caption(f"Model support: {support_n} deals pulled from statewide history.")
+
 
         if conf == "🚧 Low":
             st.warning("Low data volume. Use as guidance only; confirm with buyer alignment.")
