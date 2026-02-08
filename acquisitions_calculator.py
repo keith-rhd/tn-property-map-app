@@ -329,7 +329,7 @@ def render_contract_calculator(
     left_col, right_col = st.columns([1.2, 1], gap="large")
 
     with left_col:
-        st.subheader("✅ Should We Contract This?")
+        st.subheader("✅ RHD Feasibility Calculator")
         st.caption("Uses your historical outcomes to flag pricing cliffs for the selected county.")
 
         # Big red county name (same line)
