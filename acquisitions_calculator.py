@@ -362,7 +362,28 @@ def render_contract_calculator(
         )
 
         st.markdown(f"### {rec}")
-        st.write(f"**Input contract price:** {_dollars(input_price)}")
+        #st.write(f"**Input contract price:** {_dollars(input_price)}")
+        st.markdown(
+            f"""
+            <div style="
+                background-color: #f2f4f7;
+                border: 1px solid #e0e0e0;
+                border-radius: 6px;
+                padding: 10px 14px;
+                margin-top: 8px;
+                margin-bottom: 14px;
+            ">
+                <span style="font-size: 13px; color: #555555;">
+                    Input contract price
+                </span><br>
+                <span style="font-size: 20px; font-weight: 700; color: #111111;">
+                    {_dollars(input_price)}
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+################################
         st.write(f"**County sample:** {total_n} deals  |  **Sold:** {sold_n}  |  **Cut Loose:** {cut_n}")
         st.write(f"**Confidence:** {conf}")
 
