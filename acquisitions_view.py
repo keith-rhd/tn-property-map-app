@@ -23,7 +23,7 @@ def render_acquisitions_tabs(
 ) -> None:
     """Render Acquisitions tabs (Map + Calculator)."""
 
-    tab_map, tab_calc = st.tabs(["Map", "Should We Contract This?"])
+    tab_map, tab_calc = st.tabs(["Map", "RHD Feasibility Calculator"])
 
     with tab_map:
         render_map_and_details(**map_kwargs)
