@@ -353,10 +353,16 @@ def render_contract_calculator(
     else:
         reason.append("No SOLD ceiling available (no sold deals in the support dataset).")
 
-    if not math.isnan(support_avg_sold):
-        reason.append(f"Support Avg SOLD effective price: **{_dollars(support_avg_sold)}**")
-    if not math.isnan(county_avg_sold):
-        reason.append(f"County Avg SOLD effective price: **{_dollars(county_avg_sold)}**")
+    # Averages: avoid duplicate messaging when support == county
+    if used_fallback:
+        if not math.isnan(support_avg_sold):
+            reason.append(f"Avg SOLD effective price (nearby data): **{_dollars(support_avg_sold)}**")
+        if not math.isnan(county_avg_sold):
+            reason.append(f"Avg SOLD effective price (this county): **{_dollars(county_avg_sold)}**")
+    else:
+        if not math.isnan(county_avg_sold):
+            reason.append(f"Avg SOLD effective price: **{_dollars(county_avg_sold)}**")
+
 
     if tail_cut_at_input is None:
         reason.append(f"At {_dollars(input_price)} and above: —")
