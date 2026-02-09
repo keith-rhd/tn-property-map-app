@@ -217,14 +217,19 @@ def render_contract_calculator(
 
     # Keep the contract price sticky
     st.session_state.setdefault("acq_contract_price", 150000)
-    input_price = float(
-        st.number_input(
-            "Proposed Contract Price ($)",
-            min_value=0,
-            step=5000,
-            key="acq_contract_price",
+    
+    price_col, _ = st.columns([0.35, 1])
+    
+    with price_col:
+        input_price = float(
+            st.number_input(
+                "Proposed Contract Price ($)",
+                min_value=0,
+                step=5000,
+                key="acq_contract_price",
+            )
         )
-    )
+
 
     sold = df_time_sold_for_view.copy()
     cut = df_time_cut_for_view.copy()
