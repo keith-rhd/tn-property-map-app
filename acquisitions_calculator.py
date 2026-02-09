@@ -394,13 +394,6 @@ def render_contract_calculator(
         reason.append(
             f"At {_dollars(input_price)} and above: about **{out_of_10} out of 10 deals** got cut loose (based on {tail_n_at_input} deals)."
         )
-
-    if line_80 is not None:
-        tail_80 = support_df[support_df["effective_price"] >= line_80]
-        n80 = len(tail_80)
-        reason.append(
-            f"Around **{_dollars(line_80)}** and above: about **8 out of 10 deals** got cut loose (based on {n80} deals)."
-        )
     
     if line_90 is not None:
         tail_90 = support_df[support_df["effective_price"] >= line_90]
