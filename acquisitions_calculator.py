@@ -118,16 +118,26 @@ def _find_tail_threshold(
     start = max(start, floor)
 
 
+    prev_rate = None
+
     for P in range(start, end + step, step):
         tail = d[d["effective_price"] >= float(P)]
         n = len(tail)
         if n < int(tail_min_n):
             continue
+    
         cut_rate = float(tail["is_cut"].mean())
-        if cut_rate >= float(target_cut_rate):
+    
+        # We only call it a "cliff" if we CROSS the threshold:
+        #   prev < target  AND  current >= target
+        if prev_rate is not None and prev_rate < float(target_cut_rate) and cut_rate >= float(target_cut_rate):
             return float(P)
-
+    
+        prev_rate = cut_rate
+    
+    # If we never cross into the threshold zone, there is no meaningful "cliff"
     return None
+
 
 
 def _tail_cut_rate_at_price(df: pd.DataFrame, price: float) -> tuple[float | None, int]:
