@@ -110,6 +110,13 @@ def _find_tail_threshold(
     pmin, pmax = float(prices.min()), float(prices.max())
     start = int((pmin // step) * step)
     end = int(((pmax + step - 1) // step) * step)
+    
+    # NEW: ignore extreme-low prices when searching for "cliffs"
+    # If a few junk-low values exist (e.g., $0 / $5k), they can produce a fake cliff at the floor.
+    q05 = float(prices.quantile(0.05))
+    floor = int((q05 // step) * step)
+    start = max(start, floor)
+
 
     for P in range(start, end + step, step):
         tail = d[d["effective_price"] >= float(P)]
