@@ -503,15 +503,14 @@ def render_contract_calculator(
         for r in reason:
             st.write(f"- {r}")
 
-        # Callout aligned with the new monotonic rules
-        if rec_reason_tag in ("county_sold_ceiling", "support_sold_ceiling"):
-            st.error("Above the **highest price we’ve ever successfully SOLD** (in the selected scope).")
-        elif rec_reason_tag == "cliff_90":
-            st.error("This is in the **90%+ tail failure zone** at this price and above.")
-        elif rec_reason_tag == "cliff_80":
-            st.warning("This is in the **80% tail failure zone** at this price and above.")
+        # Callout aligned with the displayed recommendation (avoid mismatch)
+        if rec.startswith("🔴"):
+            st.error("This price is in a **high-failure zone** based on your historical outcomes.")
+        elif rec.startswith("🟡"):
+            st.warning("This price is **borderline** — not an automatic no, but it needs justification / buyer alignment.")
         else:
-            st.success("This price is *not* in the high-failure zone based on your historical outcomes.")
+            st.success("This price is **not** in the high-failure zone based on your historical outcomes.")
+
 
     with right_col:
         st.subheader("Cut-Rate by Price Range")
