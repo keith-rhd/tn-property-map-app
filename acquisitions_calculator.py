@@ -346,6 +346,11 @@ def render_contract_calculator(
         rec = "🔴 RED — Above sold ceiling"
         rec_reason_tag = "county_sold_ceiling" if pd.notna(county_max_sold) else "support_sold_ceiling"
 
+    # NEW: hard-red override when tail-at-input is 90%+ (and sample exists)
+    elif tail_cut_at_input is not None and float(tail_cut_at_input) >= 0.90 and tail_n_at_input >= tail_min_n:
+        rec = "🔴 RED — Likely Cut Loose"
+        rec_reason_tag = "tail_90_at_input"
+
     # 2) 90% cliff hard red
     elif line_90 is not None and input_price >= float(line_90):
         rec = "🔴 RED — Likely Cut Loose"
