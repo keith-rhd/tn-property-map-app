@@ -450,13 +450,14 @@ def render_contract_calculator(
 
         st.markdown(f"### {rec}")
 
-        # Tight callout for Input Contract Price (color matches verdict)
-        if rec_reason_tag in ("county_sold_ceiling", "support_sold_ceiling", "cliff_90"):
+        # Tight callout for Input Contract Price (always match the displayed recommendation)
+        if rec.startswith("🔴"):
             _bg, _bd, _tx = "#3B2529", "#4A2D32", "#C96562"
-        elif rec_reason_tag in ("cliff_80", "guardrail_yellow"):
+        elif rec.startswith("🟡"):
             _bg, _bd, _tx = "#3A2F1E", "#54422A", "#D8B56A"
         else:
             _bg, _bd, _tx = "#233629", "#2F4A36", "#7BC29A"
+
 
         st.markdown(
             f"""
