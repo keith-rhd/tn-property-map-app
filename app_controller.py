@@ -73,6 +73,9 @@ def run_app() -> None:
 
     team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
 
+    debug_event("data_loaded", rows=int(len(df)) if df is not None else 0, cols=list(df.columns) if df is not None else [])
+    debug_event("mao_tiers_loaded", rows=int(len(tiers)) if tiers is not None else 0)
+
     if team_view == "Admin":
         require_sales_manager_auth()
 
