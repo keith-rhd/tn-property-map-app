@@ -226,6 +226,7 @@ def handle_map_click(map_state: dict, team_view: str) -> None:
         st.session_state["last_map_clicked_county"] = clicked_key
         st.session_state["selected_county"] = clicked_key
         st.session_state["county_source"] = "map"
+        debug_event("map_click", team_view=team_view, clicked_county=clicked_key)
 
         if team_view == "Dispo":
             st.rerun()
