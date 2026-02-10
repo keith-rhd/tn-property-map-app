@@ -149,17 +149,15 @@ def render_contract_calculator(
             else:
                 st.caption(f"Model support: {support['n']} deals pulled from statewide history.")
 
-       # Helpful averages (what most people ask for)
-     avg = result.get("averages", {})
-     county_avg = avg.get("county_avg_sold")
-     support_avg = avg.get("support_avg_sold")
+        # Helpful averages (what most people ask for)
+        avg = result.get("averages", {})
+        county_avg = avg.get("county_avg_sold")
+        support_avg = avg.get("support_avg_sold")
 
-     if pd.notna(county_avg):
-         st.write(f"**Avg SOLD effective price (county):** {dollars(float(county_avg))}")
-     elif support.get("used") and pd.notna(support_avg):
-         st.write(f"**Avg SOLD effective price (nearby/support):** {dollars(float(support_avg))}")
-  
-      
+        if pd.notna(county_avg):
+            st.write(f"**Avg SOLD effective price (county):** {dollars(float(county_avg))}")
+        elif support.get("used") and pd.notna(support_avg):
+            st.write(f"**Avg SOLD effective price (nearby/support):** {dollars(float(support_avg))}")
 
         if conf == "🚧 Low":
             st.warning("Low data volume. Use as guidance only; confirm with buyer alignment.")
