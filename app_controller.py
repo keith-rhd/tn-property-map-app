@@ -60,6 +60,7 @@ def fmt_dollars_short(x: float) -> str:
 def run_app() -> None:
     st.set_page_config(**DEFAULT_PAGE)
     st.title("RHD Deal Intelligence")
+    render_debug_panel()
 
     df = load_data()
     tiers = load_mao_tiers()
