@@ -34,6 +34,7 @@ from filters import Selection, build_view_df, compute_overall_stats
 from geo import build_county_adjacency, load_tn_geojson
 from map_view import render_map_and_details
 from scoring import compute_health_score
+from debug_tools import debug_event, render_debug_panel
 from ui_sidebar import (
     render_acquisitions_guidance,
     render_overall_stats,
