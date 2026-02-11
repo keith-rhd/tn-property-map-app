@@ -15,7 +15,7 @@ from enrich import (
     build_county_properties_view,
     enrich_geojson_properties,
 )
-from data.geo import load_tn_geojson
+from geo import load_tn_geojson
 from map_build import build_map
 from config import MAP_DEFAULTS
 
