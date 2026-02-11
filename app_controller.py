@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from admin import require_sales_manager_auth
-from admin_view import render_admin_tabs
+from views.admin_view import render_admin_tabs
 from views.acquisitions_view import render_acquisitions_tabs
 from app_sections import (
     compute_buyer_context_from_df,
