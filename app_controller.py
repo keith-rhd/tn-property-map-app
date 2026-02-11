@@ -29,7 +29,7 @@ from services.controller_services import (
     county_options,
 )
 from data.data import load_data, load_mao_tiers
-from enrich import build_top_buyers_dict
+from data.enrich import build_top_buyers_dict
 from filters import Selection, build_view_df, compute_overall_stats
 from data.geo import build_county_adjacency, load_tn_geojson
 from map_view import render_map_and_details
