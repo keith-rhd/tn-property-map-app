@@ -13,7 +13,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from calculator_logic import compute_feasibility
+from calculators.calculator_logic import compute_feasibility
 from calculator_support import dollars
 
 
