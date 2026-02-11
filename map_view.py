@@ -11,7 +11,7 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from app_sections import handle_map_click, render_below_map_panel
-from enrich import (
+from data.enrich import (
     build_county_properties_view,
     enrich_geojson_properties,
 )
