@@ -28,7 +28,7 @@ from services.controller_services import (
     compute_sold_cut_counts,
     county_options,
 )
-from data import load_data, load_mao_tiers
+from data.loader import load_data, load_mao_tiers
 from enrich import build_top_buyers_dict
 from filters import Selection, build_view_df, compute_overall_stats
 from geo import build_county_adjacency, load_tn_geojson
