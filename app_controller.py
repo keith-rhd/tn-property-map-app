@@ -19,7 +19,7 @@ from app_sections import (
 )
 from config import DEFAULT_PAGE
 from controls import render_top_controls
-from services.controller_services import
+from services.controller_services import (
     apply_admin_filters,
     build_admin_metrics,
     build_county_gp_table,
