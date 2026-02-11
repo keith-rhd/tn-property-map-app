@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-from calculator_support import (
+from calculators.calculator_support import (
     MIN_SUPPORT_N,
     MAX_HOPS,
     auto_params_for_n,
