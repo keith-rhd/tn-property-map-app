@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from config import C
-from filters import compute_overall_stats
+from data.filters import compute_overall_stats
 from data.enrich import build_top_buyers_dict
 from ui_sidebar import render_county_quick_search
 from debug.debug_tools import debug_event
