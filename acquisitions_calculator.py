@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from calculator_logic import compute_feasibility
-from calculators.calculator_support import dollars
+from calculator_support import dollars
 
 
 def render_contract_calculator(
