@@ -87,9 +87,16 @@ def compute_sold_cut_counts(
     if "County_clean_up" not in df_conv.columns or "Status_norm" not in df_conv.columns:
         return {}, {}
 
-    # Dispo rep filter only narrows SOLD rows
-    if team_view == "Dispo" and rep_active and "Dispo_Rep_clean" in df_conv.columns:
-        df_conv = df_conv[(df_conv["Status_norm"] != "sold") | (df_conv["Dispo_Rep_clean"] == dispo_rep_choice)]
+    # Dispo rep filter should narrow BOTH SOLD and CUT rows
+    if (
+        team_view == "Dispo"
+        and rep_active
+        and dispo_rep_choice
+        and dispo_rep_choice != "All reps"
+        and "Dispo_Rep_clean" in df_conv.columns
+    ):
+        df_conv = df_conv[df_conv["Dispo_Rep_clean"] == dispo_rep_choice]
+
 
     df_conv = df_conv.dropna(subset=["County_clean_up"]).copy()
     df_conv["is_sold"] = df_conv["Status_norm"].eq("sold")

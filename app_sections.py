@@ -3,10 +3,11 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from config import C
-from filters import compute_overall_stats
-from enrich import build_top_buyers_dict
-from ui_sidebar import render_county_quick_search
+from core.config import C
+from data.filters import compute_overall_stats
+from data.enrich import build_top_buyers_dict
+from ui.ui_sidebar import render_county_quick_search
+from debug.debug_tools import debug_event
 
 # -----------------------------
 # Buyer context helpers
@@ -225,6 +226,7 @@ def handle_map_click(map_state: dict, team_view: str) -> None:
         st.session_state["last_map_clicked_county"] = clicked_key
         st.session_state["selected_county"] = clicked_key
         st.session_state["county_source"] = "map"
+        debug_event("map_click", team_view=team_view, clicked_county=clicked_key)
 
         if team_view == "Dispo":
             st.rerun()

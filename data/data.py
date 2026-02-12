@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from config import SHEET_URL, MAO_TIERS_URL, REQUIRED_COLS, C
+from core.config import SHEET_URL, MAO_TIERS_URL, REQUIRED_COLS, C
 
 
 # -------------------------

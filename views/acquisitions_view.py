@@ -11,8 +11,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from acquisitions_calculator import render_contract_calculator
-from map_view import render_map_and_details
+from views.acquisitions_calculator import render_contract_calculator
+from views.map_view import render_map_and_details
 
 
 def render_acquisitions_tabs(

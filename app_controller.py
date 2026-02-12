@@ -9,17 +9,17 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from admin import require_sales_manager_auth
-from admin_view import render_admin_tabs
-from acquisitions_view import render_acquisitions_tabs
+from views.admin import require_sales_manager_auth
+from views.admin_view import render_admin_tabs
+from views.acquisitions_view import render_acquisitions_tabs
 from app_sections import (
     compute_buyer_context_from_df,
     render_acquisitions_sidebar,
     render_dispo_county_quick_lookup,
 )
-from config import DEFAULT_PAGE
-from controls import render_top_controls
-from controller_services import (
+from core.config import DEFAULT_PAGE
+from ui.controls import render_top_controls
+from services.controller_services import (
     apply_admin_filters,
     build_admin_metrics,
     build_county_gp_table,
@@ -28,13 +28,14 @@ from controller_services import (
     compute_sold_cut_counts,
     county_options,
 )
-from data import load_data, load_mao_tiers
-from enrich import build_top_buyers_dict
-from filters import Selection, build_view_df, compute_overall_stats
-from geo import build_county_adjacency, load_tn_geojson
-from map_view import render_map_and_details
-from scoring import compute_health_score
-from ui_sidebar import (
+from data.data import load_data, load_mao_tiers
+from data.enrich import build_top_buyers_dict
+from data.filters import Selection, build_view_df, compute_overall_stats
+from data.geo import build_county_adjacency, load_tn_geojson
+from views.map_view import render_map_and_details
+from data.scoring import compute_health_score
+from debug.debug_tools import debug_event, render_debug_panel
+from ui.ui_sidebar import (
     render_acquisitions_guidance,
     render_overall_stats,
     render_rankings,
@@ -59,6 +60,7 @@ def fmt_dollars_short(x: float) -> str:
 def run_app() -> None:
     st.set_page_config(**DEFAULT_PAGE)
     st.title("RHD Deal Intelligence")
+    render_debug_panel()
 
     df = load_data()
     tiers = load_mao_tiers()
@@ -70,6 +72,9 @@ def run_app() -> None:
     all_county_options, mao_tier_by_county, mao_range_by_county = county_options(df, tiers)
 
     team_view = render_team_view_toggle(default=st.session_state.get("team_view", "Dispo"))
+
+    debug_event("data_loaded", rows=int(len(df)) if df is not None else 0, cols=list(df.columns) if df is not None else [])
+    debug_event("mao_tiers_loaded", rows=int(len(tiers)) if tiers is not None else 0)
 
     if team_view == "Admin":
         require_sales_manager_auth()

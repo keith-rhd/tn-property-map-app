@@ -11,13 +11,13 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from app_sections import handle_map_click, render_below_map_panel
-from enrich import (
+from data.enrich import (
     build_county_properties_view,
     enrich_geojson_properties,
 )
-from geo import load_tn_geojson
-from map_build import build_map
-from config import MAP_DEFAULTS
+from data.geo import load_tn_geojson
+from data.map_build import build_map
+from core.config import MAP_DEFAULTS
 
 
 def render_map_and_details(

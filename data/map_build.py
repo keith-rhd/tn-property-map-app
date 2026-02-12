@@ -1,6 +1,6 @@
 # map_build.py
 import folium
-from colors import category_color, mao_color
+from core.colors import category_color, mao_color
 
 
 def add_legend(m, *, legend_mode: str, mode: str, buyer_active: bool):
