@@ -17,7 +17,7 @@ from app_sections import (
     render_acquisitions_sidebar,
     render_dispo_county_quick_lookup,
 )
-from config import DEFAULT_PAGE
+from core.config import DEFAULT_PAGE
 from controls import render_top_controls
 from services.controller_services import (
     apply_admin_filters,
