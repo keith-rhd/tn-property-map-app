@@ -8,7 +8,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from admin import render_sales_manager_dashboard
+from views.admin import render_sales_manager_dashboard
 from views.map_view import render_map_and_details
 
 
