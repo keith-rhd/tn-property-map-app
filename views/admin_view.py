@@ -9,7 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from admin import render_sales_manager_dashboard
-from map_view import render_map_and_details
+from views.map_view import render_map_and_details
 
 
 def render_admin_tabs(
