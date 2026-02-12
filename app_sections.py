@@ -6,7 +6,7 @@ import streamlit as st
 from core.config import C
 from data.filters import compute_overall_stats
 from data.enrich import build_top_buyers_dict
-from ui_sidebar import render_county_quick_search
+from ui.ui_sidebar import render_county_quick_search
 from debug.debug_tools import debug_event
 
 # -----------------------------
