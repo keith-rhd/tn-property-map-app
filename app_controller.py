@@ -35,7 +35,7 @@ from data.geo import build_county_adjacency, load_tn_geojson
 from map_view import render_map_and_details
 from data.scoring import compute_health_score
 from debug.debug_tools import debug_event, render_debug_panel
-from ui_sidebar import (
+from ui.ui_sidebar import (
     render_acquisitions_guidance,
     render_overall_stats,
     render_rankings,
