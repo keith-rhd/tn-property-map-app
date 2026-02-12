@@ -17,7 +17,7 @@ from data.enrich import (
 )
 from data.geo import load_tn_geojson
 from data.map_build import build_map
-from config import MAP_DEFAULTS
+from core.config import MAP_DEFAULTS
 
 
 def render_map_and_details(
