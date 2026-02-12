@@ -1,6 +1,6 @@
 import pandas as pd
 
-from controller_services import compute_sold_cut_counts
+from services.controller_services import compute_sold_cut_counts
 from calculator_logic import compute_feasibility
 
 
