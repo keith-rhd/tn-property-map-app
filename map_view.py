@@ -16,7 +16,7 @@ from data.enrich import (
     enrich_geojson_properties,
 )
 from data.geo import load_tn_geojson
-from map_build import build_map
+from data.map_build import build_map
 from config import MAP_DEFAULTS
 
 
