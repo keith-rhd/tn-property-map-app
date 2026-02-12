@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 import pandas as pd
-from momentum import compute_buyer_momentum
+from data.momentum import compute_buyer_momentum
 
 @dataclass(frozen=True)
 class Selection:
