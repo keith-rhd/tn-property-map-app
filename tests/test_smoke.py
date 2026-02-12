@@ -1,7 +1,7 @@
 import pandas as pd
 
 from services.controller_services import compute_sold_cut_counts
-from calculator_logic import compute_feasibility
+from calculators.calculator_logic import compute_feasibility
 
 
 def test_dispo_rep_filter_applies_to_sold_and_cut():
