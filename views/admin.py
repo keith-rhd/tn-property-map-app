@@ -305,7 +305,7 @@ def render_sales_manager_dashboard(
         df_cut["_year"] = df_cut["_year"].astype(int)
 
         # Reuse the already-prepared sold frames from above
-        cy_cut = df_cut[df_cut["_year"] == current_year]
+        cy_cut = df_cut[(df_cut["_year"] == selected_year) & (df_cut["_doy"] <= day_of_year)]
         py_cut = df_cut[(df_cut["_year"] == prior_year) & (df_cut["_doy"] <= day_of_year)]
 
         def _shopped_rows(sold_subset: pd.DataFrame, cut_subset: pd.DataFrame, label: str) -> list[dict]:
@@ -328,7 +328,7 @@ def render_sales_manager_dashboard(
                 })
             return rows
 
-        cy_shop_rows = _shopped_rows(cy_data, cy_cut, str(current_year))
+        cy_shop_rows = _shopped_rows(cy_data, cy_cut, str(selected_year))
         py_shop_rows = _shopped_rows(py_data, py_cut, str(prior_year))
         combined_shop = pd.DataFrame(cy_shop_rows + py_shop_rows)
 
@@ -341,15 +341,15 @@ def render_sales_manager_dashboard(
         ratio_delta = f"{ytd_ratio_cy - ytd_ratio_py:+.1f}pp" if ytd_ratio_py else "N/A"
 
         sh_m1, sh_m2, sh_m3, sh_m4 = st.columns(4)
-        sh_m1.metric(f"{current_year} YTD Shopped", f"{ytd_shopped_cy:,}", delta=shopped_delta)
+        sh_m1.metric(f"{selected_year} YTD Shopped", f"{ytd_shopped_cy:,}", delta=shopped_delta)
         sh_m2.metric(f"{prior_year} YTD Shopped (same period)", f"{ytd_shopped_py:,}")
-        sh_m3.metric(f"{current_year} YTD Close Ratio", f"{ytd_ratio_cy:.1f}%", delta=ratio_delta)
+        sh_m3.metric(f"{selected_year} YTD Close Ratio", f"{ytd_ratio_cy:.1f}%", delta=ratio_delta)
         sh_m4.metric(f"{prior_year} YTD Close Ratio (same period)", f"{ytd_ratio_py:.1f}%")
 
         if not combined_shop.empty:
             shop_left, shop_right = st.columns(2)
             with shop_left:
-                st.markdown(f"##### Cumulative Deals Shopped — {current_year} vs {prior_year}")
+                st.markdown(f"##### Cumulative Deals Shopped — {selected_year} vs {prior_year}")
                 shopped_cmp = (
                     alt.Chart(combined_shop)
                     .mark_line(point=True, strokeWidth=2)
@@ -363,7 +363,7 @@ def render_sales_manager_dashboard(
                 st.altair_chart(shopped_cmp, use_container_width=True)
 
             with shop_right:
-                st.markdown(f"##### Cumulative Close Ratio — {current_year} vs {prior_year}")
+                st.markdown(f"##### Cumulative Close Ratio — {selected_year} vs {prior_year}")
                 ratio_cmp = (
                     alt.Chart(combined_shop)
                     .mark_line(point=True, strokeWidth=2)

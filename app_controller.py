@@ -151,16 +151,21 @@ def run_app() -> None:
         admin_dashboard_headline = compute_admin_headline_metrics(admin_sold_only)
         admin_county_gp_table = build_county_gp_table(admin_sold_only)
 
-        # YTD base: all sold deals with market/rep filters applied but NO year filter.
+        # YTD bases: all sold + cut deals with market/rep filters but NO year filter.
         # This lets the YTD section slice any selected year vs the prior year.
         _df_all_sold = (
             df[df["Status_norm"] == "sold"].copy()
             if "Status_norm" in df.columns
             else df.copy()
         )
-        admin_sold_ytd_base, _ = apply_admin_filters(
+        _df_all_cut = (
+            df[df["Status_norm"] == "cut loose"].copy()
+            if "Status_norm" in df.columns
+            else pd.DataFrame()
+        )
+        admin_sold_ytd_base, admin_cut_ytd_base = apply_admin_filters(
             _df_all_sold,
-            pd.DataFrame(),
+            _df_all_cut,
             market_choice=controls.market_choice,
             acq_rep_choice=controls.acq_rep_choice,
             dispo_rep_choice_admin=controls.dispo_rep_choice_admin,
@@ -301,7 +306,7 @@ def run_app() -> None:
             dashboard_headline=admin_dashboard_headline,
             county_gp_table=admin_county_gp_table,
             map_kwargs=map_kwargs,
-            df_cut_loose_for_dashboard=df_time_cut_for_view,
+            df_cut_loose_for_dashboard=admin_cut_ytd_base,
             df_sold_ytd_base=admin_sold_ytd_base,
             year_choice=str(controls.year_choice),
         )
