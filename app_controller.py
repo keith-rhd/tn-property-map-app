@@ -151,6 +151,21 @@ def run_app() -> None:
         admin_dashboard_headline = compute_admin_headline_metrics(admin_sold_only)
         admin_county_gp_table = build_county_gp_table(admin_sold_only)
 
+        # YTD base: all sold deals with market/rep filters applied but NO year filter.
+        # This lets the YTD section slice any selected year vs the prior year.
+        _df_all_sold = (
+            df[df["Status_norm"] == "sold"].copy()
+            if "Status_norm" in df.columns
+            else df.copy()
+        )
+        admin_sold_ytd_base, _ = apply_admin_filters(
+            _df_all_sold,
+            pd.DataFrame(),
+            market_choice=controls.market_choice,
+            acq_rep_choice=controls.acq_rep_choice,
+            dispo_rep_choice_admin=controls.dispo_rep_choice_admin,
+        )
+
     # Buyer context (sold-only)
     df_sold_buyers, buyer_count_by_county, buyers_set_by_county = compute_buyer_context_from_df(
         df_time_sold_for_view if team_view in ["Dispo", "Admin"] else controls.fd.df_time_sold
@@ -287,6 +302,8 @@ def run_app() -> None:
             county_gp_table=admin_county_gp_table,
             map_kwargs=map_kwargs,
             df_cut_loose_for_dashboard=df_time_cut_for_view,
+            df_sold_ytd_base=admin_sold_ytd_base,
+            year_choice=str(controls.year_choice),
         )
     elif team_view == "Acquisitions":
         render_acquisitions_tabs(

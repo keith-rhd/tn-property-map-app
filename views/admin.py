@@ -78,6 +78,8 @@ def render_sales_manager_dashboard(
     headline: dict | None = None,
     county_table: pd.DataFrame | None = None,
     df_cut_loose: pd.DataFrame | None = None,
+    df_sold_ytd_base: pd.DataFrame | None = None,
+    year_choice: str = "All years",
 ) -> None:
     """Render the Admin financial dashboard.
 
@@ -173,20 +175,34 @@ def render_sales_manager_dashboard(
     st.markdown("#### Year-over-year cumulative YTD")
 
     today = pd.Timestamp.today()
-    current_year = int(today.year)
-    prior_year = current_year - 1
-    current_month = int(today.month)
     day_of_year = int(today.dayofyear)
 
-    df_ytd = df.copy()
+    # Determine which year the user is viewing
+    _yc = str(year_choice).strip()
+    if _yc.isdigit():
+        selected_year = int(_yc)
+    else:
+        selected_year = int(today.year)  # "All years" or "Last 12 months" → current year
+
+    prior_year = selected_year - 1
+
+    # For historical years: YTD means Jan 1 – same day-of-year as today in that year.
+    # For the current year: Jan 1 – today. Both use day_of_year as the cutoff.
+    _ytd_base = df_sold_ytd_base if df_sold_ytd_base is not None and not df_sold_ytd_base.empty else df
+    df_ytd = _ytd_base.copy()
+    df_ytd["Date_dt"] = pd.to_datetime(df_ytd.get("Date_dt"), errors="coerce")
     df_ytd["_year"] = df_ytd["Date_dt"].dt.year
     df_ytd["_month"] = df_ytd["Date_dt"].dt.month
     df_ytd["_doy"] = df_ytd["Date_dt"].dt.dayofyear
     df_ytd = df_ytd.dropna(subset=["_year"])
     df_ytd["_year"] = df_ytd["_year"].astype(int)
 
-    cy_data = df_ytd[df_ytd["_year"] == current_year]
+    cy_data = df_ytd[(df_ytd["_year"] == selected_year) & (df_ytd["_doy"] <= day_of_year)]
     py_data = df_ytd[(df_ytd["_year"] == prior_year) & (df_ytd["_doy"] <= day_of_year)]
+
+    # Current month drives how many x-axis points to show.
+    # For historical years, show through today's calendar month (same as the cutoff).
+    current_month = int(today.month)
 
     _MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -208,7 +224,7 @@ def render_sales_manager_dashboard(
             })
         return rows
 
-    cy_rows = _cum_rows(cy_data, str(current_year))
+    cy_rows = _cum_rows(cy_data, str(selected_year))
     py_rows = _cum_rows(py_data, str(prior_year))
     combined_ytd = pd.DataFrame(cy_rows + py_rows)
 
@@ -221,9 +237,9 @@ def render_sales_manager_dashboard(
     deals_delta_pct = f"{(ytd_deals - prior_ytd_deals) / prior_ytd_deals * 100:+.1f}%" if prior_ytd_deals else "N/A"
 
     ytd_m1, ytd_m2, ytd_m3, ytd_m4 = st.columns(4)
-    ytd_m1.metric(f"{current_year} YTD GP", f"${ytd_gp:,.0f}", delta=gp_delta_pct)
+    ytd_m1.metric(f"{selected_year} YTD GP", f"${ytd_gp:,.0f}", delta=gp_delta_pct)
     ytd_m2.metric(f"{prior_year} YTD GP (same period)", f"${prior_ytd_gp:,.0f}")
-    ytd_m3.metric(f"{current_year} YTD Deals", f"{ytd_deals:,}", delta=deals_delta_pct)
+    ytd_m3.metric(f"{selected_year} YTD Deals", f"{ytd_deals:,}", delta=deals_delta_pct)
     ytd_m4.metric(f"{prior_year} YTD Deals (same period)", f"{prior_ytd_deals:,}")
 
     _label_expr = (
@@ -233,14 +249,14 @@ def render_sales_manager_dashboard(
         "datum.value == 10 ? 'Oct' : datum.value == 11 ? 'Nov' : 'Dec'"
     )
     _ytd_colors = alt.Scale(
-        domain=[str(current_year), str(prior_year)],
+        domain=[str(selected_year), str(prior_year)],
         range=["#4fc3f7", "#81c784"],
     )
 
     if not combined_ytd.empty:
         ytd_left, ytd_right = st.columns(2)
         with ytd_left:
-            st.markdown(f"##### Cumulative GP — {current_year} vs {prior_year}")
+            st.markdown(f"##### Cumulative GP — {selected_year} vs {prior_year}")
             gp_cmp = (
                 alt.Chart(combined_ytd)
                 .mark_line(point=True, strokeWidth=2)
@@ -254,7 +270,7 @@ def render_sales_manager_dashboard(
             st.altair_chart(gp_cmp, use_container_width=True)
 
         with ytd_right:
-            st.markdown(f"##### Cumulative Deals — {current_year} vs {prior_year}")
+            st.markdown(f"##### Cumulative Deals — {selected_year} vs {prior_year}")
             deals_cmp = (
                 alt.Chart(combined_ytd)
                 .mark_line(point=True, strokeWidth=2)
@@ -267,13 +283,11 @@ def render_sales_manager_dashboard(
             )
             st.altair_chart(deals_cmp, use_container_width=True)
 
-    try:
-        prior_cutoff_str = today.replace(year=prior_year).strftime("%b %d, %Y")
-    except ValueError:
-        prior_cutoff_str = f"{_MONTH_ABBR[current_month - 1]} {today.day}, {prior_year}"
+    cutoff_label = today.strftime("%b %d")
     st.caption(
-        f"YTD = Jan 1 – today ({today.strftime('%b %d, %Y')}). "
-        f"{prior_year} shown through {prior_cutoff_str} for an apples-to-apples comparison. "
+        f"YTD = Jan 1 – {cutoff_label} of each year. "
+        f"{'Today' if selected_year == int(today.year) else str(selected_year)} vs {prior_year}, "
+        f"both capped at {cutoff_label} for an apples-to-apples comparison. "
         f"Green = ahead, red = behind vs prior year."
     )
 
