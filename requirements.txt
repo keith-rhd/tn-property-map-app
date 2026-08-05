@@ -6,3 +6,4 @@ requests
 numpy
 shapely
 supabase
+starlette<1.0
